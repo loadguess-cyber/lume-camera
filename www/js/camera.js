@@ -66,6 +66,7 @@
         running = true;
         emit('started', capabilities());
         loop();
+        startAWB();
       })
       .catch(function (err) {
         var msg = '카메라를 열 수 없습니다';
@@ -81,6 +82,7 @@
   function stop(keepRunning) {
     if (!keepRunning) running = false;
     cancelLoop();
+    stopAWB();
     if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
     track = null;
     if (video) video.srcObject = null;
@@ -99,6 +101,106 @@
     if (!track || !track.getSettings) return {};
     try { return track.getSettings() || {}; } catch (e) { return {}; }
   }
+
+  /* ── 프로 조작 (ISO · 셔터 · 노출보정 · 화이트밸런스) ──────────
+     기기와 브라우저가 지원할 때만 열립니다. getCapabilities() 가
+     알려주지 않는 항목은 UI 에서 아예 감춥니다.
+     조리개는 어느 브라우저 API 에도 없고, 휴대폰 렌즈는 대부분
+     조리개가 고정이라 조작 대상이 아닙니다. */
+
+  var PRO_KEYS = ['iso', 'exposureTime', 'exposureCompensation', 'colorTemperature', 'focusDistance'];
+
+  /* 각 항목의 지원 범위 — 없으면 그 키가 빠집니다 */
+  function proCaps() {
+    var cap = capabilities(), out = {};
+    PRO_KEYS.forEach(function (k) {
+      var c = cap[k];
+      if (c && typeof c.min === 'number' && typeof c.max === 'number' && c.max > c.min) {
+        out[k] = { min: c.min, max: c.max, step: c.step || (c.max - c.min) / 100 };
+      }
+    });
+    /* 수동으로 넘어갈 수 있는지 */
+    out.canManualExposure = !!(cap.exposureMode && cap.exposureMode.indexOf('manual') >= 0);
+    out.canManualWB = !!(cap.whiteBalanceMode && cap.whiteBalanceMode.indexOf('manual') >= 0);
+    out.canManualFocus = !!(cap.focusMode && cap.focusMode.indexOf('manual') >= 0);
+    return out;
+  }
+
+  function proValues() {
+    var st = settingsOf(), out = {};
+    PRO_KEYS.forEach(function (k) { if (st[k] !== undefined) out[k] = st[k]; });
+    out.exposureMode = st.exposureMode;
+    out.whiteBalanceMode = st.whiteBalanceMode;
+    out.focusMode = st.focusMode;
+    return out;
+  }
+
+  /* 한 항목을 수동값으로 (value === null 이면 자동으로 되돌립니다) */
+  function setPro(key, value) {
+    if (!track) return Promise.reject(new Error('카메라가 준비되지 않았습니다'));
+    var adv = {};
+    if (key === 'iso' || key === 'exposureTime') {
+      if (value === null) adv.exposureMode = 'continuous';
+      else { adv.exposureMode = 'manual'; adv[key] = value; }
+    } else if (key === 'exposureCompensation') {
+      if (value === null) adv.exposureCompensation = 0;
+      else adv.exposureCompensation = value;
+    } else if (key === 'colorTemperature') {
+      if (value === null) adv.whiteBalanceMode = 'continuous';
+      else { adv.whiteBalanceMode = 'manual'; adv.colorTemperature = value; }
+    } else if (key === 'focusDistance') {
+      if (value === null) adv.focusMode = 'continuous';
+      else { adv.focusMode = 'manual'; adv.focusDistance = value; }
+    } else {
+      return Promise.reject(new Error('알 수 없는 항목: ' + key));
+    }
+    return track.applyConstraints({ advanced: [adv] });
+  }
+
+  /* 전부 자동으로 */
+  function resetPro() {
+    if (!track) return Promise.resolve();
+    var cap = capabilities(), adv = {};
+    if (cap.exposureMode && cap.exposureMode.indexOf('continuous') >= 0) adv.exposureMode = 'continuous';
+    if (cap.whiteBalanceMode && cap.whiteBalanceMode.indexOf('continuous') >= 0) adv.whiteBalanceMode = 'continuous';
+    if (cap.focusMode && cap.focusMode.indexOf('continuous') >= 0) adv.focusMode = 'continuous';
+    if (cap.exposureCompensation) adv.exposureCompensation = 0;
+    if (!Object.keys(adv).length) return Promise.resolve();
+    return track.applyConstraints({ advanced: [adv] }).catch(function () {});
+  }
+
+  /* ── 자동 화이트밸런스 (앱에서 직접 계산) ──────────────────
+     기기 ISP 의 자동 WB 는 노란기·파란기를 남기는 경우가 많아,
+     보정 전 영상에서 직접 회색점을 찾아 채널 게인을 겁니다. */
+
+  var awbTimer = 0, awbCur = null;
+
+  function awbTick() {
+    if (!running || !video || video.readyState < 2) return;
+    if (!Store.getSettings().autoWB) return;
+    var px = Analyze.sample(video);
+    var g = Analyze.awbGains(px);
+    if (!g) return;                       /* 판단 보류 — 직전 값 유지 */
+    awbCur = Analyze.smooth(awbCur, g);
+    GL.setAWB(awbCur[0], awbCur[1], awbCur[2]);
+    if (renderer && renderer.ok) renderer.applyAWB();
+    emit('awb', { gains: awbCur.slice(), label: Analyze.gainsToLabel(awbCur) });
+  }
+
+  function startAWB() {
+    stopAWB();
+    if (!Store.getSettings().autoWB) { clearAWB(); return; }
+    awbTimer = setInterval(awbTick, 250);
+    awbTick();
+  }
+  function stopAWB() { if (awbTimer) { clearInterval(awbTimer); awbTimer = 0; } }
+  function clearAWB() {
+    awbCur = null;
+    GL.setAWB(1, 1, 1);
+    if (renderer && renderer.ok) renderer.applyAWB();
+    emit('awb', { gains: [1, 1, 1], label: '끔' });
+  }
+  function getAWB() { return awbCur ? awbCur.slice() : [1, 1, 1]; }
 
   function setTorch(onOff) {
     if (!track) return Promise.reject();
@@ -163,8 +265,23 @@
     renderer.setSize(w, h);
   }
 
-  /* ── 사진 촬영 ──────────────────────────── */
-  function capturePhoto(preset, amount, ratio) {
+  /* ── 화질 단계 ──────────────────────────────
+     JPEG 압축률과 저장 해상도 상한을 함께 움직입니다.
+     '최고' 는 센서가 주는 화소를 그대로 씁니다. */
+  var QUALITY = {
+    high:   { jpeg: 0.96, cap: 0,    label: '최고' },
+    normal: { jpeg: 0.90, cap: 3000, label: '표준' },
+    light:  { jpeg: 0.82, cap: 2000, label: '가볍게' }
+  };
+  function qualityStep() {
+    return QUALITY[Store.getSettings().photoQuality] || QUALITY.high;
+  }
+
+  /* ── 사진 촬영 ──────────────────────────────
+     format: 'image/jpeg' | 'image/png'
+     PNG 는 무손실이지만 RAW(DNG)가 아닙니다 — 센서 원본이 아니라
+     ISP 가 이미 현상해 넘겨준 화면을 손실 없이 담는 것입니다. */
+  function capturePhoto(preset, amount, ratio, format) {
     return new Promise(function (resolve, reject) {
       if (!video || video.readyState < 2) return reject(new Error('카메라 준비 중입니다'));
       var vw = video.videoWidth, vh = video.videoHeight;
@@ -173,21 +290,34 @@
       /* 화면 비율에 맞춰 잘라낸 최종 크기 계산 (원본 화소를 최대한 유지) */
       var ar = ratioValue(ratio);           // 가로/세로
       var out = fitRect(vw, vh, ar);
+
+      var step = qualityStep();
+      if (step.cap) {
+        var long = Math.max(out.w, out.h);
+        if (long > step.cap) {
+          var k = step.cap / long;
+          out.w = Math.max(2, Math.round(out.w * k) & ~1);
+          out.h = Math.max(2, Math.round(out.h * k) & ~1);
+        }
+      }
+
       var cv = GL.renderTo(video, preset, amount, out.w, out.h, isMirrored());
       if (!cv) return reject(new Error('렌더링 실패'));
 
-      var q = Store.getSettings().quality;
+      var type = format === 'image/png' ? 'image/png' : 'image/jpeg';
       cv.toBlob(function (blob) {
         if (!blob) return reject(new Error('이미지 생성 실패'));
-        resolve({ blob: blob, width: out.w, height: out.h, type: 'image/jpeg' });
-      }, 'image/jpeg', q);
+        resolve({ blob: blob, width: out.w, height: out.h, type: type });
+      }, type, type === 'image/jpeg' ? step.jpeg : undefined);
     });
   }
 
   /* 보정 없는 원본도 함께 저장할 때 사용 */
-  function captureOriginal(ratio) {
-    return capturePhoto(XMP.neutral(), 0, ratio);
+  function captureOriginal(ratio, format) {
+    return capturePhoto(XMP.neutral(), 0, ratio, format);
   }
+
+  function extForImage(type) { return type === 'image/png' ? 'png' : 'jpg'; }
 
   function ratioValue(r) {
     if (r === '9:16') return 9 / 16;
@@ -284,7 +414,10 @@
     setZoom: setZoom, getZoom: getZoom, focusAt: focusAt,
     capturePhoto: capturePhoto, captureOriginal: captureOriginal,
     startRecording: startRecording, stopRecording: stopRecording, isRecording: isRecording,
-    ratioValue: ratioValue, extFor: extFor,
+    ratioValue: ratioValue, extFor: extFor, extForImage: extForImage,
+    proCaps: proCaps, proValues: proValues, setPro: setPro, resetPro: resetPro,
+    startAWB: startAWB, stopAWB: stopAWB, clearAWB: clearAWB, getAWB: getAWB,
+    QUALITY: QUALITY,
     isRunning: function () { return running; }
   };
 })(window);
