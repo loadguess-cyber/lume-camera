@@ -213,7 +213,7 @@
     $$('#presetRail .pcard').forEach(function (c) {
       c.classList.toggle('on', (c.dataset.id || null) === (id || null));
     });
-    $('#intensityWrap').classList.toggle('hidden', !id);
+    $('#intensityWrap').classList.toggle('hidden', !id || !Store.getSettings().showPresets);
     applyToRenderer();
     persist();
   }
@@ -938,7 +938,7 @@
     var s = Store.getSettings();
     var g = el('div', 'set-group');
 
-    function toggle(title, desc, key) {
+    function toggle(title, desc, key, onChange) {
       var row = el('div', 'set-item');
       row.innerHTML = '<div class="set-label"><b></b><span></span></div>';
       $('b', row).textContent = title;
@@ -950,6 +950,7 @@
         Store.setSetting(key, v);
         sw.classList.toggle('on', v);
         Store.haptic(10);
+        if (onChange) onChange(v);
       });
       g.appendChild(row);
     }
@@ -975,6 +976,14 @@
       g.appendChild(row);
     }
 
+    seg('사진 화질', '압축률과 저장 해상도를 함께 조절합니다', 'photoQuality', [
+      { v: 'light', t: '가볍게' }, { v: 'normal', t: '표준' }, { v: 'high', t: '최고' }
+    ]);
+    toggle('JPEG 로 저장', '용량이 작고 어디서나 열립니다', 'saveJpeg');
+    toggle('무손실 PNG 로도 저장', '압축 손실이 없는 대신 용량이 훨씬 큽니다', 'savePng');
+    toggle('자동 화이트밸런스', '노란기·파란기를 빼고 중간값을 맞춥니다', 'autoWB', function (on) {
+      if (on) Cam.startAWB(); else Cam.clearAWB();
+    });
     seg('미리보기 화질', '높을수록 선명하지만 배터리를 더 씁니다', 'previewScale', [
       { v: 'perf', t: '가볍게' }, { v: 'auto', t: '자동' }, { v: 'high', t: '최고' }
     ]);
@@ -982,6 +991,14 @@
     toggle('원본도 함께 저장', '보정 전 사진을 한 장 더 남깁니다', 'saveOriginal');
     toggle('진동 반응', '버튼을 누를 때 짧게 진동합니다', 'haptics');
     host.appendChild(g);
+
+    var note = el('div', 'lib-note');
+    note.innerHTML =
+      '<b>RAW(DNG) 는 아직 저장할 수 없습니다.</b> 브라우저는 센서 원본에 접근할 ' +
+      '방법을 주지 않아, 앱이 받는 것은 기기가 이미 현상해 넘긴 화면입니다. ' +
+      '무손실 PNG 는 그 화면을 손실 없이 담는 것이지 RAW 가 아닙니다.<br>' +
+      '진짜 DNG 를 남기려면 안드로이드 Camera2 를 직접 쓰는 네이티브 플러그인이 필요합니다.';
+    host.appendChild(note);
 
     var about = el('div', 'about');
     about.innerHTML =
@@ -1020,19 +1037,47 @@
     Store.haptic(24);
 
     var preset = activePreset(), amount = activeAmount();
-    Cam.capturePhoto(preset, amount, S.ratio)
-      .then(function (res) {
-        var name = 'LUME_' + Store.stamp() + '.jpg';
-        setLastShot(res.blob, 'image/jpeg', name);
-        return autoSave(res.blob, name).then(function () {
-          if (!Store.getSettings().saveOriginal) return;
-          return Cam.captureOriginal(S.ratio).then(function (o) {
-            return Store.saveFile(o.blob, name.replace('.jpg', '_원본.jpg'), { share: false })
-              .catch(function () {});
-          });
+    var s = Store.getSettings();
+    var base = 'LUME_' + Store.stamp();
+
+    /* 저장할 형식들 — 둘 다 켜면 같은 장면을 두 벌 남깁니다.
+       둘 다 끈 경우엔 JPEG 로 (사진을 잃지 않는 쪽으로) */
+    var formats = [];
+    if (s.saveJpeg !== false) formats.push('image/jpeg');
+    if (s.savePng) formats.push('image/png');
+    if (!formats.length) formats.push('image/jpeg');
+
+    /* 순서대로 찍어 저장합니다. 첫 장을 썸네일·미리보기로 씁니다 */
+    var first = null;
+    var chain = formats.reduce(function (p, type) {
+      return p.then(function () {
+        return Cam.capturePhoto(preset, amount, S.ratio, type).then(function (res) {
+          var name = base + '.' + Cam.extForImage(type);
+          if (!first) { first = res; setLastShot(res.blob, type, name); }
+          return Store.saveFile(res.blob, name, { share: false });
+        });
+      });
+    }, Promise.resolve());
+
+    chain
+      .then(function () {
+        S.lastShot.saved = true;
+        var what = formats.map(function (t) { return Cam.extForImage(t).toUpperCase(); }).join(' + ');
+        Store.toast(Store.isNative() ? '문서/LUME 에 저장했습니다 · ' + what
+                                     : '내려받았습니다 · ' + what);
+      })
+      .then(function () {
+        if (!Store.getSettings().saveOriginal) return;
+        var oType = formats[0];
+        return Cam.captureOriginal(S.ratio, oType).then(function (o) {
+          return Store.saveFile(o.blob, base + '_원본.' + Cam.extForImage(oType), { share: false })
+            .catch(function () {});
         });
       })
-      .catch(function (e) { Store.toast(e.message || '촬영 실패'); })
+      .catch(function (e) {
+        Store.toast(e.message || '촬영 실패');
+        console.warn(e);
+      })
       .then(function () { busy = false; });
   }
 
@@ -1061,6 +1106,128 @@
       })
       .catch(function (e) { Store.toast(e.message || '녹화 종료 실패'); })
       .then(function () { busy = false; });
+  }
+
+  /* ══════════════ 프로 조작 ══════════════
+     기기가 알려주는 항목만 줄로 세웁니다. getCapabilities() 에 없으면
+     브라우저가 그 조작을 열어주지 않는 것이므로 감춥니다. */
+
+  var PRO_ROWS = [
+    { key: 'iso',                  name: 'ISO',   fmt: function (v) { return String(Math.round(v)); } },
+    { key: 'exposureTime',         name: '셔터',  fmt: fmtShutter },
+    { key: 'exposureCompensation', name: '노출',  fmt: function (v) { return (v > 0 ? '+' : '') + (+v).toFixed(1) + ' EV'; } },
+    { key: 'colorTemperature',     name: '색온도', fmt: function (v) { return Math.round(v) + 'K'; } },
+    { key: 'focusDistance',        name: '초점',  fmt: function (v) { return (+v).toFixed(2); } }
+  ];
+
+  /* exposureTime 은 100µs 단위입니다 (W3C image-capture 규격) */
+  function fmtShutter(v) {
+    var sec = v / 10000;
+    if (sec >= 1) return sec.toFixed(1) + '초';
+    return '1/' + Math.round(1 / sec);
+  }
+
+  function buildPro() {
+    var host = $('#proPanel');
+    if (!host) return;
+    host.innerHTML = '';
+
+    var caps = Cam.proCaps();
+    var vals = Cam.proValues();
+    var shown = 0;
+
+    PRO_ROWS.forEach(function (def) {
+      var c = caps[def.key];
+      if (!c) return;
+      shown++;
+
+      var row = el('div', 'pro-row');
+      row.appendChild(el('span', 'pro-name', def.name));
+
+      var auto = el('button', 'pro-auto on', 'AUTO');
+      var input = document.createElement('input');
+      input.type = 'range';
+      input.min = c.min; input.max = c.max; input.step = c.step;
+      input.value = vals[def.key] !== undefined ? vals[def.key] : (c.min + c.max) / 2;
+      input.disabled = true;
+      var out = el('span', 'pro-val', 'AUTO');
+
+      function push() {
+        Cam.setPro(def.key, +input.value)
+          .then(function () { out.textContent = def.fmt(+input.value); })
+          .catch(function () { out.textContent = '지원 안 함'; });
+      }
+
+      auto.addEventListener('click', function () {
+        var toAuto = !auto.classList.contains('on');
+        auto.classList.toggle('on', toAuto);
+        input.disabled = toAuto;
+        Store.haptic(10);
+        if (toAuto) {
+          out.textContent = 'AUTO';
+          Cam.setPro(def.key, null).catch(function () {});
+        } else {
+          push();
+        }
+      });
+      input.addEventListener('input', push);
+
+      row.appendChild(auto); row.appendChild(input); row.appendChild(out);
+      host.appendChild(row);
+    });
+
+    if (!shown) {
+      host.appendChild(el('div', 'pro-note',
+        '이 기기의 브라우저가 수동 조작을 열어주지 않습니다.\n' +
+        'APK 로 설치하면 더 많은 항목이 열릴 수 있습니다.'));
+    }
+    /* 조리개는 어느 브라우저 API 에도 없고, 휴대폰 렌즈는 대개 고정입니다 */
+    host.appendChild(el('div', 'pro-note', '조리개는 렌즈가 고정이라 조작 대상이 아닙니다'));
+  }
+
+  /* ══════════════ 히스토그램 ══════════════ */
+  var histTimer = 0;
+
+  function histTick() {
+    var cv = $('#histCanvas');
+    var gl = $('#gl');
+    if (!cv || !gl) return;
+    var px = Analyze.sample(gl);
+    var h = Analyze.histogram(px);
+    Analyze.drawHistogram(cv, h);
+
+    var warn = $('#scopeWarn');
+    var clip = Analyze.clipping(h);
+    if (!clip) { warn.textContent = ''; return; }
+    var hot = clip.high > 0.005, cold = clip.low > 0.005;
+    warn.innerHTML =
+      '<span class="' + (cold ? 'cold' : '') + '">어두움 ' + (clip.low * 100).toFixed(1) + '%</span>' +
+      '<span class="' + (hot ? 'hot' : '') + '">날아감 ' + (clip.high * 100).toFixed(1) + '%</span>';
+  }
+
+  function setHistogram(on) {
+    Store.setSetting('showHistogram', on);
+    $('#scope').classList.toggle('hidden', !on);
+    $('#btnHist').classList.toggle('on', on);
+    if (histTimer) { clearInterval(histTimer); histTimer = 0; }
+    if (on) { histTimer = setInterval(histTick, 200); histTick(); }
+  }
+
+  /* ══════════════ 프리셋 줄 · 프로 패널 여닫기 ══════════════ */
+  function setPresetsOpen(on) {
+    Store.setSetting('showPresets', on);
+    $('#presetStrip').classList.toggle('hidden', !on);
+    $('#btnPresets').classList.toggle('on', on);
+    $('#intensityWrap').classList.toggle('hidden', !on || !S.currentId);
+    layoutFrame();
+  }
+
+  function setProOpen(on) {
+    S.proOpen = on;
+    $('#proPanel').classList.toggle('hidden', !on);
+    $('#btnPro').classList.toggle('on', on);
+    if (on) buildPro();
+    layoutFrame();
   }
 
   /* 찍는 즉시 문서/LUME 에 저장한다 (공유창은 띄우지 않음) */
@@ -1167,6 +1334,21 @@
       Store.haptic(10);
     });
 
+    $('#btnHist').addEventListener('click', function () {
+      setHistogram(!Store.getSettings().showHistogram);
+      Store.haptic(10);
+    });
+
+    $('#btnPro').addEventListener('click', function () {
+      setProOpen(!S.proOpen);
+      Store.haptic(10);
+    });
+
+    $('#btnPresets').addEventListener('click', function () {
+      setPresetsOpen(!Store.getSettings().showPresets);
+      Store.haptic(10);
+    });
+
     $('#btnLibrary').addEventListener('click', function () {
       buildLibrary(); openSheet('screen-library');
     });
@@ -1234,6 +1416,8 @@
     S.torch = false;
     $('#btnTorch').classList.remove('on');
     $('#btnTorch').style.opacity = Cam.hasTorch() ? '' : '.4';
+    /* 카메라가 새로 열릴 때마다 지원 항목이 달라질 수 있습니다 (전/후면 전환) */
+    if (S.proOpen) buildPro();
   }
 
   /* ══════════════ 시트/뷰어 버튼 ══════════════ */
@@ -1296,7 +1480,8 @@
     $('#intensity').value = Math.round(S.amount * 100);
     $('#intensityVal').textContent = Math.round(S.amount * 100);
     paintRange($('#intensity'));
-    $('#intensityWrap').classList.toggle('hidden', !S.currentId);
+    setPresetsOpen(s.showPresets !== false);
+    setHistogram(!!s.showHistogram);
     $$('#modeRow .mode').forEach(function (b) {
       b.classList.toggle('active', b.dataset.mode === S.mode);
     });
