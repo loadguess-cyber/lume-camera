@@ -979,6 +979,7 @@
     seg('사진 화질', '압축률과 저장 해상도를 함께 조절합니다', 'photoQuality', [
       { v: 'light', t: '가볍게' }, { v: 'normal', t: '표준' }, { v: 'high', t: '최고' }
     ]);
+    toggle('최대 해상도로 촬영', '미리보기 대신 사진용 경로로 한 장 더 받습니다. 셔터가 조금 느려집니다', 'maxResolution');
     toggle('JPEG 로 저장', '용량이 작고 어디서나 열립니다', 'saveJpeg');
     toggle('무손실 PNG 로도 저장', '압축 손실이 없는 대신 용량이 훨씬 큽니다', 'savePng');
     toggle('자동 화이트밸런스', '노란기·파란기를 빼고 중간값을 맞춥니다', 'autoWB', function (on) {
@@ -1047,19 +1048,16 @@
     if (s.savePng) formats.push('image/png');
     if (!formats.length) formats.push('image/jpeg');
 
-    /* 순서대로 찍어 저장합니다. 첫 장을 썸네일·미리보기로 씁니다 */
-    var first = null;
-    var chain = formats.reduce(function (p, type) {
-      return p.then(function () {
-        return Cam.capturePhoto(preset, amount, S.ratio, type).then(function (res) {
-          var name = base + '.' + Cam.extForImage(type);
-          if (!first) { first = res; setLastShot(res.blob, type, name); }
-          return Store.saveFile(res.blob, name, { share: false });
-        });
-      });
-    }, Promise.resolve());
-
-    chain
+    /* 한 장면을 받아 형식별로 저장합니다. 첫 장을 썸네일·미리보기로 씁니다 */
+    Cam.capturePhotos(preset, amount, S.ratio, formats)
+      .then(function (shots) {
+        setLastShot(shots[0].blob, shots[0].type, base + '.' + Cam.extForImage(shots[0].type));
+        return shots.reduce(function (p, res) {
+          return p.then(function () {
+            return Store.saveFile(res.blob, base + '.' + Cam.extForImage(res.type), { share: false });
+          });
+        }, Promise.resolve());
+      })
       .then(function () {
         S.lastShot.saved = true;
         var what = formats.map(function (t) { return Cam.extForImage(t).toUpperCase(); }).join(' + ');
