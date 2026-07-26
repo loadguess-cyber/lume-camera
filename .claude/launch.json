@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lume-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "serve", "www", "-l", "5183"],
+      "port": 5183,
+      "autoPort": false
+    }
+  ]
+}

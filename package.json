@@ -1,0 +1,22 @@
+{
+  "name": "lume-camera",
+  "version": "1.0.0",
+  "private": true,
+  "description": "라이트룸 프리셋을 실시간으로 입히는 카메라",
+  "scripts": {
+    "android:add": "cap add android",
+    "android:sync": "node scripts/patch-android.js && cap sync android",
+    "icons": "node scripts/make-icons.js",
+    "serve": "npx --yes serve www -l 5173"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.2"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1"
+  }
+}

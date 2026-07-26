@@ -1,0 +1,41 @@
+name: 웹 미리보기 배포
+
+# main 에 푸시할 때마다 www/ 를 GitHub Pages 로 올린다.
+# 폰 브라우저에서 바로 카메라까지 동작한다 (https 라서 권한이 열림).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # enablement: 저장소 설정에서 Pages 를 켜두지 않았어도 자동으로 켠다
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: www 폴더 업로드
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+
+      - name: 배포
+        id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,13 @@
+{
+  "appId": "com.iroir.lume",
+  "appName": "LUME",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false,
+    "backgroundColor": "#08090B"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
