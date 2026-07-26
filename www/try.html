@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#08090B">
+<title>LUME — 프리셋 적용해보기</title>
+<link rel="icon" href="icon-192.png">
+<style>
+  :root{
+    --bg:#08090B; --panel:#121418; --line:#22262E;
+    --fg:#EDEFF3; --dim:#8A9099; --accent:#E9C46A;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",
+         "Noto Sans KR",system-ui,sans-serif;
+    display:flex; flex-direction:column;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  header{
+    display:flex; align-items:center; gap:12px;
+    padding:14px 16px; border-bottom:1px solid var(--line); flex:0 0 auto;
+  }
+  header .mark{font-weight:700; letter-spacing:.18em; font-size:15px}
+  header .sub{color:var(--dim); font-size:13px}
+  header .spacer{flex:1}
+
+  .btn{
+    background:#1A1D23; color:var(--fg); border:1px solid var(--line);
+    border-radius:999px; padding:8px 15px; font-size:13px; cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn:hover{background:#22262E}
+  .btn.accent{background:var(--accent); border-color:var(--accent); color:#191408; font-weight:600}
+  .btn:disabled{opacity:.4; cursor:default}
+
+  main{flex:1; min-height:0; display:flex; flex-direction:column; align-items:center;
+       justify-content:center; padding:16px; gap:12px}
+
+  #stage{
+    position:relative; max-width:100%; max-height:100%;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #view{
+    max-width:100%; max-height:64vh; border-radius:12px; display:block;
+    background:#000; box-shadow:0 18px 50px rgba(0,0,0,.55);
+  }
+  #badge{
+    position:absolute; left:12px; top:12px; padding:5px 11px; border-radius:999px;
+    background:rgba(8,9,11,.72); font-size:12px; letter-spacing:.02em;
+    backdrop-filter:blur(8px); pointer-events:none;
+  }
+  #hold{
+    position:absolute; right:12px; top:12px; padding:5px 11px; border-radius:999px;
+    background:rgba(8,9,11,.72); font-size:12px; color:var(--dim);
+    backdrop-filter:blur(8px); cursor:pointer; user-select:none;
+  }
+
+  #drop{
+    border:1px dashed var(--line); border-radius:14px; padding:40px 28px;
+    text-align:center; color:var(--dim); max-width:460px;
+  }
+  #drop strong{display:block; color:var(--fg); font-size:16px; margin-bottom:6px}
+  #drop.over{border-color:var(--accent); color:var(--fg)}
+
+  footer{flex:0 0 auto; border-top:1px solid var(--line); background:var(--panel)}
+
+  #amountRow{
+    display:flex; align-items:center; gap:12px; padding:12px 16px 6px;
+    max-width:760px; margin:0 auto;
+  }
+  #amountRow label{color:var(--dim); font-size:13px; flex:0 0 auto}
+  #amount{flex:1; accent-color:var(--accent)}
+  #amountVal{width:44px; text-align:right; font-variant-numeric:tabular-nums; font-size:13px}
+
+  #rail{
+    display:flex; gap:10px; overflow-x:auto; padding:8px 16px 16px;
+    scrollbar-width:thin;
+  }
+  .chip{
+    flex:0 0 auto; width:76px; cursor:pointer; text-align:center;
+    border:none; background:none; padding:0; color:var(--dim); font:inherit;
+  }
+  .chip canvas{
+    width:76px; height:76px; border-radius:10px; display:block;
+    border:2px solid transparent; background:#000; object-fit:cover;
+  }
+  .chip span{display:block; font-size:11px; margin-top:5px; line-height:1.3;
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .chip.on{color:var(--fg)}
+  .chip.on canvas{border-color:var(--accent)}
+
+  #toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+    background:#22262E; border:1px solid var(--line); border-radius:10px;
+    padding:10px 16px; font-size:13px; opacity:0; pointer-events:none;
+    transition:opacity .2s;
+  }
+  #toast.show{opacity:1}
+
+  @media (max-width:560px){
+    header .sub{display:none}
+    #view{max-height:52vh}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="mark">LUME</span>
+  <span class="sub">프리셋 적용해보기</span>
+  <span class="spacer"></span>
+  <button class="btn" id="btnSample">샘플 장면</button>
+  <button class="btn" id="btnPhoto">사진 열기</button>
+  <button class="btn" id="btnXmp">.xmp 불러오기</button>
+  <button class="btn accent" id="btnSave" disabled>저장</button>
+</header>
+
+<main>
+  <div id="drop">
+    <strong>사진을 여기에 끌어다 놓으세요</strong>
+    파일을 올리거나 위의 <em>사진 열기</em> 를 누르세요.<br>
+    사진이 없으면 <em>샘플 장면</em> 으로도 프리셋 색감을 볼 수 있습니다.
+  </div>
+
+  <div id="stage" hidden>
+    <canvas id="view"></canvas>
+    <div id="badge">원본</div>
+    <div id="hold">원본 보기</div>
+  </div>
+</main>
+
+<footer>
+  <div id="amountRow">
+    <label for="amount">강도</label>
+    <input type="range" id="amount" min="0" max="100" value="100">
+    <span id="amountVal">100</span>
+  </div>
+  <div id="rail"></div>
+</footer>
+
+<div id="toast"></div>
+
+<input type="file" id="filePhoto" accept="image/*" hidden>
+<input type="file" id="fileXmp" accept=".xmp,application/xml,text/xml" hidden>
+
+<script src="js/xmp.js"></script>
+<script src="js/gl.js"></script>
+<script src="js/presets.js"></script>
+<script src="js/sample.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var MAX_EDGE = 2048;          /* 이보다 큰 사진은 줄여서 렌더 (GPU 한계 회피) */
+  var THUMB = 152;              /* 프리셋 칩 썸네일 한 변 (2배 해상도) */
+
+  var view = document.getElementById('view');
+  var stage = document.getElementById('stage');
+  var drop = document.getElementById('drop');
+  var badge = document.getElementById('badge');
+  var hold = document.getElementById('hold');
+  var rail = document.getElementById('rail');
+  var amount = document.getElementById('amount');
+  var amountVal = document.getElementById('amountVal');
+  var btnSave = document.getElementById('btnSave');
+  var toastEl = document.getElementById('toast');
+
+  var renderer = null;
+  var source = null;            /* 원본 캔버스 */
+  var presets = [{ id: '__none', name: '원본', preset: XMP.neutral() }]
+    .concat(BUILTIN_PRESETS.map(function (p) { return { id: p.id, name: p.name, preset: p }; }));
+  var current = 0;
+
+  /* ── 렌더 ── */
+  function ensureRenderer() {
+    if (renderer && renderer.ok) return true;
+    renderer = new GL.Renderer(view);
+    if (!renderer.ok) {
+      toast(renderer.error || 'WebGL 을 사용할 수 없습니다');
+      return false;
+    }
+    return true;
+  }
+
+  function render() {
+    if (!source || !ensureRenderer()) return;
+    var entry = presets[current];
+    renderer.setSize(source.width, source.height);
+    renderer.setPreset(entry.preset, Number(amount.value) / 100);
+    renderer.draw(source, { freezeGrain: true });
+    badge.textContent = entry.id === '__none'
+      ? '원본'
+      : entry.name + ' · ' + amount.value + '%';
+    btnSave.disabled = false;
+  }
+
+  /* ── 원본 지정 ── */
+  function setSource(canvas) {
+    source = canvas;
+    drop.hidden = true;
+    stage.hidden = false;
+    render();
+    buildRail();
+  }
+
+  function fitCanvas(image) {
+    var w = image.naturalWidth || image.width;
+    var h = image.naturalHeight || image.height;
+    var scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+    var cv = document.createElement('canvas');
+    cv.width = Math.max(2, Math.round(w * scale));
+    cv.height = Math.max(2, Math.round(h * scale));
+    cv.getContext('2d').drawImage(image, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+
+  function loadImageFile(file) {
+    if (!file || !/^image\//.test(file.type)) return toast('이미지 파일이 아닙니다');
+    var url = URL.createObjectURL(file);
+    var im = new Image();
+    im.onload = function () { URL.revokeObjectURL(url); setSource(fitCanvas(im)); };
+    im.onerror = function () { URL.revokeObjectURL(url); toast('사진을 열지 못했습니다'); };
+    im.src = url;
+  }
+
+  /* ── 프리셋 칩 ── */
+  function buildRail() {
+    rail.textContent = '';
+    if (!source) return;
+    presets.forEach(function (entry, i) {
+      var chip = document.createElement('button');
+      chip.className = 'chip' + (i === current ? ' on' : '');
+      chip.type = 'button';
+
+      var cv = document.createElement('canvas');
+      cv.width = THUMB; cv.height = THUMB;
+      var made = GL.renderTo(source, entry.preset, 1, THUMB, THUMB, false);
+      if (made) cv.getContext('2d').drawImage(made, 0, 0);
+      chip.appendChild(cv);
+
+      var label = document.createElement('span');
+      label.textContent = entry.name;
+      chip.appendChild(label);
+
+      chip.addEventListener('click', function () {
+        current = i;
+        [].forEach.call(rail.children, function (el, n) { el.classList.toggle('on', n === i); });
+        render();
+      });
+      rail.appendChild(chip);
+    });
+  }
+
+  /* ── 원본과 비교 (누르는 동안 원본) ── */
+  var peeking = false;
+  function peek(on) {
+    if (!source || peeking === on) return;
+    peeking = on;
+    if (on) {
+      renderer.setPreset(XMP.neutral(), 1);
+      renderer.draw(source, { freezeGrain: true });
+      badge.textContent = '원본';
+    } else {
+      render();
+    }
+  }
+  ['mousedown', 'touchstart'].forEach(function (e) {
+    hold.addEventListener(e, function (ev) { ev.preventDefault(); peek(true); });
+  });
+  ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(function (e) {
+    hold.addEventListener(e, function () { peek(false); });
+  });
+
+  /* ── 버튼 ── */
+  document.getElementById('btnSample').addEventListener('click', function () {
+    setSource(SAMPLE.draw(document.createElement('canvas'), 1280, 960));
+  });
+
+  document.getElementById('btnPhoto').addEventListener('click', function () {
+    document.getElementById('filePhoto').click();
+  });
+  document.getElementById('filePhoto').addEventListener('change', function (e) {
+    loadImageFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  document.getElementById('btnXmp').addEventListener('click', function () {
+    document.getElementById('fileXmp').click();
+  });
+  document.getElementById('fileXmp').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parsed = XMP.parse(String(reader.result));
+      if (!parsed) return toast('XMP 를 해석하지 못했습니다');
+      parsed.name = parsed.name || file.name.replace(/\.xmp$/i, '');
+      presets.push({ id: 'x_' + presets.length, name: parsed.name, preset: parsed });
+      current = presets.length - 1;
+      buildRail();
+      render();
+      rail.scrollLeft = rail.scrollWidth;
+      toast('“' + parsed.name + '” 적용됨');
+    };
+    reader.onerror = function () { toast('파일을 읽지 못했습니다'); };
+    reader.readAsText(file);
+  });
+
+  btnSave.addEventListener('click', function () {
+    if (!source) return;
+    view.toBlob(function (blob) {
+      if (!blob) return toast('저장에 실패했습니다');
+      var name = 'LUME_' + XMP.safeFileName(presets[current].name) + '_' +
+                 amount.value + '.png';
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      toast(name + ' 저장됨');
+    }, 'image/png');
+  });
+
+  amount.addEventListener('input', function () {
+    amountVal.textContent = amount.value;
+    render();
+  });
+
+  /* ── 드래그 앤 드롭 ── */
+  ['dragenter', 'dragover'].forEach(function (e) {
+    document.addEventListener(e, function (ev) {
+      ev.preventDefault();
+      drop.classList.add('over');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function (e) {
+    document.addEventListener(e, function (ev) {
+      ev.preventDefault();
+      drop.classList.remove('over');
+    });
+  });
+  document.addEventListener('drop', function (ev) {
+    var file = ev.dataTransfer && ev.dataTransfer.files[0];
+    if (!file) return;
+    if (/\.xmp$/i.test(file.name)) {
+      var dt = new DataTransfer();
+      dt.items.add(file);
+      var input = document.getElementById('fileXmp');
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+      return;
+    }
+    loadImageFile(file);
+  });
+
+  /* ── 좌우 화살표로 프리셋 넘기기 ── */
+  document.addEventListener('keydown', function (ev) {
+    if (!source) return;
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+    current = (current + (ev.key === 'ArrowRight' ? 1 : presets.length - 1)) % presets.length;
+    [].forEach.call(rail.children, function (el, n) { el.classList.toggle('on', n === current); });
+    if (rail.children[current]) rail.children[current].scrollIntoView({ block: 'nearest', inline: 'center' });
+    render();
+  });
+
+  var toastTimer = 0;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2200);
+  }
+})();
+</script>
+</body>
+</html>
