@@ -13,6 +13,26 @@
     return e;
   }
 
+  /* 슬라이더 트랙을 기본값 기준으로 채웁니다.
+     ±슬라이더는 가운데(0)에서 손잡이 쪽으로만 색이 차고, 가운데에 기준 눈금이 섭니다.
+     CSS 가 --lo/--hi 로 트랙 그라디언트를 그립니다. */
+  function paintRange(inp) {
+    if (!inp || inp.type !== 'range') return;
+    var min = +inp.min || 0, max = +inp.max, v = +inp.value;
+    if (!isFinite(max) || max === min) max = min + 100;
+    var span = max - min;
+    var p = (v - min) / span * 100;
+    var z = min < 0 ? (0 - min) / span * 100 : 0;
+    inp.style.setProperty('--lo', Math.min(p, z) + '%');
+    inp.style.setProperty('--hi', Math.max(p, z) + '%');
+    inp.classList.toggle('bi', min < 0);
+  }
+
+  /* 사용자가 끄는 동안은 이 하나로 전부 처리됩니다 */
+  document.addEventListener('input', function (e) {
+    if (e.target && e.target.type === 'range') paintRange(e.target);
+  }, true);
+
   /* ══════════════ 상태 ══════════════ */
   var S = {
     presets: [],        // 내장 + 사용자
@@ -247,6 +267,7 @@
       input.value = v;
       val.textContent = fmt(v);
       val.classList.toggle('mod', Math.abs(v - (def.dflt || 0)) > 1e-6);
+      paintRange(input);
     }
     input.addEventListener('input', function () {
       set(+input.value);
@@ -474,6 +495,7 @@
       S.currentId = p.id;
       S.amount = 1;
       $('#intensity').value = 100; $('#intensityVal').textContent = '100';
+      paintRange($('#intensity'));
       persist();
       buildRail();
       buildLibrary();
@@ -627,6 +649,7 @@
         var input = document.createElement('input');
         input.type = 'range'; input.min = -100; input.max = 100; input.step = 1;
         input.value = arr[idx];
+        paintRange(input);
         var v = el('span', 'hsl-v', (arr[idx] > 0 ? '+' : '') + arr[idx]);
         input.addEventListener('input', function () {
           var val = +input.value;
@@ -636,7 +659,7 @@
         });
         nm.addEventListener('click', function () {
           editObj().hsl[S.hslMode][idx] =0;
-          input.value = 0; v.textContent = '0';
+          input.value = 0; v.textContent = '0'; paintRange(input);
           liveUpdate(); onEdit(); Store.haptic(12);
         });
         row.appendChild(dot); row.appendChild(nm); row.appendChild(input); row.appendChild(v);
@@ -1272,6 +1295,7 @@
     $('#btnGrid').classList.toggle('on', S.grid);
     $('#intensity').value = Math.round(S.amount * 100);
     $('#intensityVal').textContent = Math.round(S.amount * 100);
+    paintRange($('#intensity'));
     $('#intensityWrap').classList.toggle('hidden', !S.currentId);
     $$('#modeRow .mode').forEach(function (b) {
       b.classList.toggle('active', b.dataset.mode === S.mode);
