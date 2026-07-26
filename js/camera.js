@@ -33,7 +33,9 @@
     stop(true);
 
     var s = Store.getSettings();
-    var wantW = s.previewScale === 'perf' ? 1280 : 1920;
+    /* 가능한 한 큰 스트림을 요청합니다. ideal 이라 기기가 못 주면 알아서 낮춥니다.
+       ImageCapture 를 못 쓰는 기기에서는 이 스트림이 곧 사진 해상도입니다. */
+    var wantW = s.previewScale === 'perf' ? 1280 : 3840;
     var constraints = {
       audio: false,
       video: {
@@ -63,6 +65,10 @@
         return video.play().catch(function () {});
       })
       .then(function () {
+        stillCap = null;              /* 트랙이 바뀌었으니 사진 성능도 다시 조회 */
+        return maximizeStream();
+      })
+      .then(function () {
         running = true;
         emit('started', capabilities());
         loop();
@@ -77,6 +83,20 @@
         emit('error', msg);
         throw err;
       });
+  }
+
+  /* 트랙이 더 큰 해상도를 낼 수 있으면 끌어올립니다.
+     getUserMedia 의 ideal 만으로는 기기가 중간 해상도를 고르는 일이 잦습니다. */
+  function maximizeStream() {
+    if (!track) return Promise.resolve();
+    if (Store.getSettings().previewScale === 'perf') return Promise.resolve();
+    var cap = capabilities(), st = settingsOf();
+    if (!cap.width || !cap.height || !cap.width.max || !cap.height.max) return Promise.resolve();
+    if (st.width >= cap.width.max && st.height >= cap.height.max) return Promise.resolve();
+    return track.applyConstraints({
+      width:  { ideal: cap.width.max },
+      height: { ideal: cap.height.max }
+    }).catch(function () {});
   }
 
   function stop(keepRunning) {
@@ -257,7 +277,9 @@
   function fitCanvas(cssW, cssH) {
     var s = Store.getSettings();
     var dpr = global.devicePixelRatio || 1;
-    var cap = s.previewScale === 'high' ? 2160 : (s.previewScale === 'perf' ? 1080 : 1600);
+    /* 요즘 폰은 세로로 2300px 넘게 뿌립니다. 예전 '자동' 상한 1600 은
+       화면보다 낮아 미리보기가 뿌옇게 보였습니다. */
+    var cap = s.previewScale === 'high' ? 3000 : (s.previewScale === 'perf' ? 1080 : 2400);
     var scale = Math.min(dpr, 2.5);
     var w = cssW * scale, h = cssH * scale;
     var longSide = Math.max(w, h);
@@ -277,19 +299,74 @@
     return QUALITY[Store.getSettings().photoQuality] || QUALITY.high;
   }
 
+  /* ── 정지화상 캡처 ──────────────────────────
+     미리보기 영상은 대개 1080p 로 묶여 있어 센서 화소를 다 쓰지 못합니다.
+     ImageCapture.takePhoto() 는 사진용 경로를 타므로 훨씬 큰 사진이
+     나옵니다 (12MP 센서면 4000×3000 급). 지원하지 않으면 영상 프레임으로
+     되돌아갑니다. */
+  var stillCap = null;      /* 이 트랙의 사진 성능 (한 번만 조회) */
+
+  function photoCaps() {
+    if (stillCap) return Promise.resolve(stillCap);
+    if (typeof ImageCapture === 'undefined' || !track || track.readyState !== 'live') {
+      return Promise.resolve(null);
+    }
+    var ic;
+    try { ic = new ImageCapture(track); } catch (e) { return Promise.resolve(null); }
+    return ic.getPhotoCapabilities()
+      .then(function (pc) {
+        stillCap = { ic: ic, pc: pc };
+        return stillCap;
+      })
+      .catch(function () { return null; });
+  }
+
+  /* 가장 큰 해상도로 한 장. 실패하면 null */
+  function grabStill() {
+    if (!Store.getSettings().maxResolution) return Promise.resolve(null);
+    return photoCaps().then(function (c) {
+      if (!c) return null;
+      var opt = {};
+      var pw = c.pc && c.pc.imageWidth, ph = c.pc && c.pc.imageHeight;
+      if (pw && pw.max) opt.imageWidth = pw.max;
+      if (ph && ph.max) opt.imageHeight = ph.max;
+      return c.ic.takePhoto(opt)
+        .then(function (blob) {
+          /* EXIF 회전을 반영해 비트맵으로 (안 그러면 눕거나 뒤집힙니다) */
+          return createImageBitmap(blob, { imageOrientation: 'from-image' });
+        })
+        .catch(function () { return null; });
+    }).catch(function () { return null; });
+  }
+
   /* ── 사진 촬영 ──────────────────────────────
      format: 'image/jpeg' | 'image/png'
      PNG 는 무손실이지만 RAW(DNG)가 아닙니다 — 센서 원본이 아니라
      ISP 가 이미 현상해 넘겨준 화면을 손실 없이 담는 것입니다. */
   function capturePhoto(preset, amount, ratio, format) {
-    return new Promise(function (resolve, reject) {
-      if (!video || video.readyState < 2) return reject(new Error('카메라 준비 중입니다'));
-      var vw = video.videoWidth, vh = video.videoHeight;
-      if (!vw || !vh) return reject(new Error('영상 크기를 알 수 없습니다'));
+    return capturePhotos(preset, amount, ratio, [format || 'image/jpeg'])
+      .then(function (list) { return list[0]; });
+  }
 
-      /* 화면 비율에 맞춰 잘라낸 최종 크기 계산 (원본 화소를 최대한 유지) */
-      var ar = ratioValue(ratio);           // 가로/세로
-      var out = fitRect(vw, vh, ar);
+  /* 여러 형식으로 저장할 때 정지화상은 한 번만 받습니다.
+     형식마다 takePhoto() 를 부르면 셔터가 두 번 울리고 두 장면이 됩니다. */
+  function capturePhotos(preset, amount, ratio, formats) {
+    if (!video || video.readyState < 2) {
+      return Promise.reject(new Error('카메라 준비 중입니다'));
+    }
+    formats = (formats && formats.length) ? formats : ['image/jpeg'];
+
+    return grabStill().then(function (still) {
+      var src = still || video;
+      var vw = still ? still.width : video.videoWidth;
+      var vh = still ? still.height : video.videoHeight;
+      if (!vw || !vh) {
+        if (still && still.close) still.close();
+        throw new Error('영상 크기를 알 수 없습니다');
+      }
+
+      /* 화면 비율에 맞춰 잘라낸 최종 크기 (늘리지 않습니다) */
+      var out = fitRect(vw, vh, ratioValue(ratio));
 
       var step = qualityStep();
       if (step.cap) {
@@ -301,14 +378,26 @@
         }
       }
 
-      var cv = GL.renderTo(video, preset, amount, out.w, out.h, isMirrored());
-      if (!cv) return reject(new Error('렌더링 실패'));
+      var cv = GL.renderTo(src, preset, amount, out.w, out.h, isMirrored());
+      if (still && still.close) still.close();
+      if (!cv) throw new Error('렌더링 실패');
 
-      var type = format === 'image/png' ? 'image/png' : 'image/jpeg';
-      cv.toBlob(function (blob) {
-        if (!blob) return reject(new Error('이미지 생성 실패'));
-        resolve({ blob: blob, width: out.w, height: out.h, type: type });
-      }, type, type === 'image/jpeg' ? step.jpeg : undefined);
+      /* 한 번 그린 캔버스를 형식별로 인코딩만 다시 합니다 */
+      return formats.reduce(function (p, format) {
+        return p.then(function (acc) {
+          var type = format === 'image/png' ? 'image/png' : 'image/jpeg';
+          return new Promise(function (resolve, reject) {
+            cv.toBlob(function (blob) {
+              if (!blob) return reject(new Error('이미지 생성 실패'));
+              acc.push({
+                blob: blob, width: out.w, height: out.h, type: type,
+                source: still ? 'still' : 'video'
+              });
+              resolve(acc);
+            }, type, type === 'image/jpeg' ? step.jpeg : undefined);
+          });
+        });
+      }, Promise.resolve([]));
     });
   }
 
@@ -325,13 +414,16 @@
     return 3 / 4;   // 기본 3:4 (세로)
   }
 
-  /* 소스 해상도 안에서 목표 비율의 최대 사각형 */
+  /* 소스에서 목표 비율로 잘라낼 때 실제로 남는 화소 크기.
+
+     예전에는 짧은 변을 가로로 삼아 sw×(sw/AR) 를 돌려줬는데,
+     가로 스트림(1920×1080)에서 세로 3:4 를 찍으면 1080×1440 이 나왔습니다.
+     하지만 잘라낸 원본은 810×1080 뿐이라 1.33배로 늘려 찍고 있었습니다.
+     늘린 만큼 흐려지므로, 이제 잘라낸 그대로의 화소를 돌려줍니다. */
   function fitRect(vw, vh, targetAR) {
-    /* 세로 화면 기준: 화면은 항상 세로로 쓰므로 짧은 변이 가로 */
-    var portrait = vh >= vw;
-    var sw = portrait ? vw : vh, sh = portrait ? vh : vw;
-    var w = sw, h = Math.round(sw / targetAR);
-    if (h > sh) { h = sh; w = Math.round(sh * targetAR); }
+    /* cover 크롭 — 원본 안에 들어가는 targetAR 최대 사각형 */
+    var w = vw, h = Math.round(vw / targetAR);
+    if (h > vh) { h = vh; w = Math.round(vh * targetAR); }
     return { w: Math.max(2, w - (w % 2)), h: Math.max(2, h - (h % 2)) };
   }
 
@@ -412,7 +504,7 @@
     isMirrored: isMirrored, getFacing: getFacing,
     capabilities: capabilities, hasTorch: hasTorch, setTorch: setTorch,
     setZoom: setZoom, getZoom: getZoom, focusAt: focusAt,
-    capturePhoto: capturePhoto, captureOriginal: captureOriginal,
+    capturePhoto: capturePhoto, capturePhotos: capturePhotos, captureOriginal: captureOriginal,
     startRecording: startRecording, stopRecording: stopRecording, isRecording: isRecording,
     ratioValue: ratioValue, extFor: extFor, extForImage: extForImage,
     proCaps: proCaps, proValues: proValues, setPro: setPro, resetPro: resetPro,

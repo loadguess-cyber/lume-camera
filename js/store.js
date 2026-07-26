@@ -35,6 +35,7 @@
     saveJpeg: true,        // JPEG 로 저장
     savePng: false,        // 무손실 PNG 로도 저장 (둘 다 켜면 두 장이 남습니다)
     photoQuality: 'high',  // high · normal · light
+    maxResolution: true,   // 촬영 순간 사진용 경로로 최대 해상도 한 장 (ImageCapture)
     autoWB: true,          // 앱이 직접 계산하는 자동 화이트밸런스
     showHistogram: false,  // 히스토그램 표시
     showPresets: true      // 프리셋 줄 표시 (끄면 버튼으로 열고 닫습니다)
