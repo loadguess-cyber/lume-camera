@@ -11,9 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Capacitor 8 CLI 는 Node 22 이상을 요구한다
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - uses: actions/setup-java@v4
         with:
