@@ -7,7 +7,9 @@
     "android:add": "cap add android",
     "android:sync": "node scripts/patch-android.js && cap sync android",
     "icons": "node scripts/make-icons.js",
-    "serve": "npx --yes serve www -l 5173"
+    "serve": "npx --yes serve www -l 5173",
+    "preview": "node scripts/preview-server.js",
+    "presets:render": "node scripts/render-presets.js"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.2"
