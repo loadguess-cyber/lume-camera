@@ -50,9 +50,12 @@ const Compose = (() => {
       .trim();
   }
 
-  /** 채널 하나에 올릴 문안 */
-  function forChannel(posting, channel) {
-    return render(Store.templateFor(channel), posting);
+  /**
+   * 채널 하나에 올릴 문안.
+   * 말투를 따로 넘기면 그 말투로 뽑습니다 (공고에 저장된 말투는 그대로 둔 채 비교해 볼 때).
+   */
+  function forChannel(posting, channel, style) {
+    return render(Store.templateFor(channel, style || posting.style), posting);
   }
 
   /** 글자수 상태 — 채널 권장 길이를 넘었는지 */

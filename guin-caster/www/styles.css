@@ -363,3 +363,6 @@ select.input {
   background: none; border: 0; border-radius: 8px; cursor: pointer; color: var(--faint);
 }
 .row .acts button:active { background: var(--sunk); }
+
+/* 말투 칩은 눌러서 고르는 것이라 조금 더 크게 잡습니다. */
+.style-chips .chip { padding: 9px 14px; font-size: 13.5px; }

@@ -5,6 +5,7 @@
   "description": "구인광고를 한 번 쓰면 채널별 문안으로 바꿔주고, 게재와 끌어올리기를 관리하는 앱",
   "scripts": {
     "preview": "node scripts/preview-server.js",
+    "bundle": "node scripts/bundle.js",
     "icons": "node scripts/make-icons.js",
     "android:add": "cap add android",
     "android:sync": "node scripts/patch-android.js && cap sync android"

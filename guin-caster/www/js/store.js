@@ -30,83 +30,7 @@ const Store = (() => {
     { name: '동네 단톡방',     kind: 'openchat', url: '',                                        bumpDays: 2 },
   ];
 
-  /* ─────────── 기본 문안 템플릿 ───────────
-   * {{항목}} 자리에 공고 내용이 들어갑니다.
-   * 비어 있는 항목이 들어간 줄은 통째로 사라집니다. — 빈칸을 남겨도 문안이 깨지지 않습니다. */
-  const SEED_TEMPLATES = {
-
-    blog:
-`[{{지역}}] {{업체명}} {{직무}} 구합니다
-
-안녕하세요, {{지역}}에서 일하고 있는 {{업체명}}입니다.
-함께 일할 {{직무}} 한 분을 찾습니다.
-
-■ 모집 내용
-· 하는 일 : {{직무}}
-· 근무지 : {{지역}}
-· 근무 형태 : {{근무형태}}
-· 근무 시간 : {{근무시간}}
-· 급여 : {{급여}}
-
-■ 이런 분을 찾습니다
-{{자격}}
-
-■ 이런 점이 좋습니다
-{{복지}}
-
-■ 자세한 이야기
-{{상세}}
-
-■ 지원 방법
-{{연락처}} 로 편하게 연락 주세요.
-지원 마감 : {{마감}}
-
-{{태그}}`,
-
-    cafe:
-`{{지역}} {{업체명}}에서 {{직무}} 구합니다
-
-· 근무 형태 : {{근무형태}}
-· 근무 시간 : {{근무시간}}
-· 급여 : {{급여}}
-· 근무지 : {{지역}}
-
-{{자격}}
-{{복지}}
-
-{{상세}}
-
-연락처 : {{연락처}}
-마감 : {{마감}}`,
-
-    daangn:
-`{{지역}} {{업체명}}입니다. {{직무}} 함께 하실 분 구해요.
-
-{{근무시간}} 근무하시고, 급여는 {{급여}}입니다.
-{{근무형태}}로 일하실 분이면 좋아요.
-{{자격}}
-{{복지}}
-
-궁금한 점 있으시면 {{연락처}}로 편하게 연락 주세요.`,
-
-    openchat:
-`[{{지역}} {{직무}} 구합니다]
-{{업체명}} · {{근무형태}}
-{{근무시간}} / {{급여}}
-문의 {{연락처}}`,
-
-    sms:
-`[{{업체명}}] {{지역}} {{직무}} 모집 {{급여}} 문의 {{연락처}}`,
-
-    etc:
-`{{지역}} {{업체명}} {{직무}} 모집
-
-{{근무형태}} / {{근무시간}} / {{급여}}
-{{자격}}
-{{상세}}
-
-문의 {{연락처}}`,
-  };
+  /* 문안 템플릿은 tone.js 가 말투별로 들고 있습니다. */
 
   const EMPTY_POSTING = () => ({
     id: uid(),
@@ -115,6 +39,7 @@ const Store = (() => {
     자격: '', 복지: '', 상세: '',
     연락처: '', 마감: '',
     태그: '',
+    style: Tone.DEFAULT_STYLE,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
@@ -143,10 +68,49 @@ const Store = (() => {
     return {
       postings: [],
       channels: SEED_CHANNELS.map((c, i) => ({ id: uid(), enabled: true, order: i, ...c })),
-      templates: { ...SEED_TEMPLATES },
+      templates: Tone.seed(),
       logs: [],
       settings: { cardTheme: 'ink' },
     };
+  }
+
+  /**
+   * 저장된 템플릿을 지금 구조에 맞춥니다.
+   *
+   * 말투가 생기기 전 저장본은 {blog:'…', cafe:'…'} 처럼 종류만 있었습니다.
+   * 그 문안들이 지금의 '친근·동네' 말투 그대로라, 친근 쪽으로 옮겨 담습니다.
+   * 직접 고쳐 쓰시던 문안이 그대로 살아남습니다.
+   */
+  function mergeTemplates(saved) {
+    const base = Tone.seed();
+    if (!saved || typeof saved !== 'object') return base;
+
+    const isNewShape = Tone.ids().some(id => saved[id]);
+    if (!isNewShape) {
+      const old = {};
+      for (const kind of Object.keys(KINDS)) {
+        if (typeof saved[kind] === 'string') old[kind] = saved[kind];
+      }
+      base.friendly = { ...base.friendly, ...old };
+      return base;
+    }
+
+    for (const id of Tone.ids()) {
+      if (saved[id] && typeof saved[id] === 'object') {
+        base[id] = { ...base[id], ...saved[id] };
+      }
+    }
+    return base;
+  }
+
+  /* 말투가 없던 시절의 공고에 기본 말투를 달아 줍니다.
+   *
+   * 화살표 함수(const)로 두면 안 됩니다. 맨 위의 `let state = load()` 가
+   * 이 줄보다 먼저 실행되는데, const 는 그때 아직 없는 것으로 취급돼
+   * load() 안에서 터지고, 그 오류가 try/catch 에 삼켜져
+   * 저장해 둔 내용이 통째로 사라집니다. 선언문이어야 끌어올려집니다.        */
+  function fillPostings(list) {
+    return (list || []).map(p => (p.style ? p : { ...p, style: Tone.DEFAULT_STYLE }));
   }
 
   function load() {
@@ -157,14 +121,16 @@ const Store = (() => {
       // 나중에 항목이 늘어나도 예전 저장본이 깨지지 않게 채워 둡니다.
       const base = blank();
       return {
-        postings: s.postings || [],
+        postings: fillPostings(s.postings),
         channels: s.channels || base.channels,
-        templates: { ...base.templates, ...(s.templates || {}) },
+        templates: mergeTemplates(s.templates),
         logs: s.logs || [],
         settings: { ...base.settings, ...(s.settings || {}) },
       };
     } catch (e) {
-      console.warn('저장본을 읽지 못해 새로 시작합니다', e);
+      // 여기로 오면 저장해 둔 내용이 통째로 버려집니다.
+      // 조용히 넘어가면 알아챌 방법이 없으니 확실하게 남깁니다.
+      console.error('저장본을 읽지 못해 새로 시작합니다 — 저장된 내용이 사라집니다', e);
       return blank();
     }
   }
@@ -252,23 +218,32 @@ const Store = (() => {
     save();
   }
 
-  /* ─────────── 문안 템플릿 ─────────── */
+  /* ─────────── 문안 템플릿 ───────────
+   * 말투(style) × 채널 종류(kind) 로 한 벌씩 있습니다.            */
 
-  /** 채널에 개별 템플릿이 있으면 그것을, 없으면 종류별 기본 템플릿을 씁니다. */
-  function templateFor(ch) {
+  const styleOf = (s) => (state.templates[s] ? s : Tone.DEFAULT_STYLE);
+
+  /**
+   * 채널에 개별 템플릿이 걸려 있으면 그것이 우선입니다 (말투와 무관하게 그 채널만의 문안).
+   * 없으면 말투 × 종류의 기본 문안을 씁니다.
+   */
+  function templateFor(ch, style) {
     if (ch && ch.template) return ch.template;
-    return state.templates[ch ? ch.kind : 'etc'] || state.templates.etc;
+    const set = state.templates[styleOf(style)];
+    return set[ch ? ch.kind : 'etc'] || set.etc;
   }
 
-  function setTemplate(kind, text) {
-    state.templates[kind] = text;
+  function setTemplate(style, kind, text) {
+    state.templates[styleOf(style)][kind] = text;
     save();
   }
 
-  function resetTemplate(kind) {
-    state.templates[kind] = SEED_TEMPLATES[kind];
+  function resetTemplate(style, kind) {
+    state.templates[styleOf(style)][kind] = Tone.TEMPLATES[styleOf(style)][kind];
     save();
   }
+
+  const templateOf = (style, kind) => state.templates[styleOf(style)][kind] || '';
 
   /* ─────────── 게재 이력 ─────────── */
 
@@ -348,9 +323,9 @@ const Store = (() => {
     const data = parsed.data || parsed;
     if (!data || !Array.isArray(data.postings)) throw new Error('구인 캐스터 백업 파일이 아닙니다.');
     state = {
-      postings: data.postings || [],
+      postings: fillPostings(data.postings),
       channels: data.channels || blank().channels,
-      templates: { ...SEED_TEMPLATES, ...(data.templates || {}) },
+      templates: mergeTemplates(data.templates),
       logs: data.logs || [],
       settings: { ...blank().settings, ...(data.settings || {}) },
     };
@@ -366,7 +341,7 @@ const Store = (() => {
     KINDS, FIELDS, EMPTY_POSTING, uid,
     postings, posting, upsertPosting, removePosting, duplicatePosting,
     channels, channel, activeChannels, upsertChannel, removeChannel, moveChannel,
-    templateFor, setTemplate, resetTemplate, templates: () => state.templates,
+    templateFor, templateOf, setTemplate, resetTemplate, templates: () => state.templates,
     logPost, unlogLast, logs, lastPostedAt, statusOf, todo,
     settings, setSetting, exportJSON, importJSON, wipe,
   };

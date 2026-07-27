@@ -378,6 +378,9 @@ select.input {
 }
 .row .acts button:active { background: var(--sunk); }
 
+/* 말투 칩은 눌러서 고르는 것이라 조금 더 크게 잡습니다. */
+.style-chips .chip { padding: 9px 14px; font-size: 13.5px; }
+
 </style>
 </head>
 <body>
@@ -427,42 +430,123 @@ select.input {
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>
-/* store.js — 저장소 · 데이터 모델
+/* tone.js — 말투(스타일)
  *
- * 전부 기기 안(localStorage)에만 저장됩니다. 서버로 나가는 것이 없습니다.
- * 기기를 바꿀 때는 [설정 → 내보내기] 로 만든 .json 파일을 옮기면 됩니다.
+ * 같은 공고라도 어떤 말로 쓰느냐에 따라 반응이 다릅니다.
+ * 말투를 고르면 채널별 문안이 통째로 그 말투로 다시 쓰입니다.
+ *
+ * 말투마다 채널 종류별 문안을 따로 들고 있습니다 (말투 3 × 종류 6 = 18벌).
+ * 단어만 기계적으로 바꾸면 어색해지기 때문에, 문장을 각각 써 두었습니다.
  */
 
-const Store = (() => {
+const Tone = (() => {
 
-  const KEY = 'guincaster.v1';
-
-  /* ─────────── 채널 종류 ───────────
-   * 종류마다 기본 문안 템플릿과 권장 글자수가 다릅니다.            */
-  const KINDS = {
-    blog:     { label: '블로그',   limit: 4000, desc: '길게 써도 되는 곳. 검색 유입을 노립니다.' },
-    cafe:     { label: '카페',     limit: 1500, desc: '지역 카페·커뮤니티. 본문은 중간 길이로.' },
-    daangn:   { label: '당근알바', limit:  800, desc: '동네 구인. 말투가 짧고 담백할수록 반응이 옵니다.' },
-    openchat: { label: '오픈톡·단톡', limit: 300, desc: '스크롤로 흘러가는 곳. 3~5줄이 한계입니다.' },
-    sms:      { label: '문자',     limit:   90, desc: 'LMS 기준. 넘기면 요금이 올라갑니다.' },
-    etc:      { label: '기타',     limit: 2000, desc: '' },
-  };
-
-  /* ─────────── 처음 켰을 때 들어있는 채널 ───────────
-   * 실제 쓰는 채널로 바꾸시면 됩니다. 오픈톡방은 방마다 하나씩 만드는 걸 권합니다.
-   * bumpDays = 며칠 뒤에 다시 올릴지 (끌어올리기 주기)                  */
-  const SEED_CHANNELS = [
-    { name: '네이버 블로그',   kind: 'blog',     url: 'https://blog.naver.com/GoBlogWrite.naver', bumpDays: 7 },
-    { name: '지역 맘카페',     kind: 'cafe',     url: '',                                        bumpDays: 7 },
-    { name: '당근알바',        kind: 'daangn',   url: 'https://www.daangn.com/kr/jobs/',          bumpDays: 3 },
-    { name: '오픈톡방 ①',      kind: 'openchat', url: '',                                        bumpDays: 2 },
-    { name: '동네 단톡방',     kind: 'openchat', url: '',                                        bumpDays: 2 },
+  const STYLES = [
+    { id: 'formal',   label: '정중·공식',  desc: '격식을 차린 말투. 정규직·사무직·규모 있는 곳에 어울립니다.' },
+    { id: 'friendly', label: '친근·동네',  desc: '편하게 말 거는 말투. 동네 가게·카페·오픈톡에서 반응이 좋습니다.' },
+    { id: 'urgent',   label: '급구·간결',  desc: '짧고 강하게. 사람이 당장 필요할 때 씁니다.' },
   ];
 
-  /* ─────────── 기본 문안 템플릿 ───────────
-   * {{항목}} 자리에 공고 내용이 들어갑니다.
-   * 비어 있는 항목이 들어간 줄은 통째로 사라집니다. — 빈칸을 남겨도 문안이 깨지지 않습니다. */
-  const SEED_TEMPLATES = {
+  const DEFAULT_STYLE = 'friendly';
+
+  const list  = () => STYLES.slice();
+  const get   = (id) => STYLES.find(s => s.id === id) || STYLES.find(s => s.id === DEFAULT_STYLE);
+  const label = (id) => get(id).label;
+  const ids   = () => STYLES.map(s => s.id);
+
+  /* ══════════════ 정중·공식 ══════════════ */
+
+  const FORMAL = {
+
+    blog:
+`{{업체명}} {{직무}} 모집 공고
+
+{{업체명}}에서 함께 근무하실 {{직무}} 담당자를 모집합니다.
+
+■ 모집 요강
+· 모집 부문 : {{직무}}
+· 근무지 : {{지역}}
+· 고용 형태 : {{근무형태}}
+· 근무 시간 : {{근무시간}}
+· 급여 : {{급여}}
+
+■ 자격 요건
+{{자격}}
+
+■ 근무 조건 및 복리후생
+{{복지}}
+
+■ 상세 안내
+{{상세}}
+
+■ 지원 방법
+{{연락처}} 로 연락 주시기 바랍니다.
+접수 마감 : {{마감}}
+
+{{태그}}`,
+
+    cafe:
+`[{{지역}}] {{업체명}} {{직무}} 모집합니다
+
+· 모집 부문 : {{직무}}
+· 근무지 : {{지역}}
+· 고용 형태 : {{근무형태}}
+· 근무 시간 : {{근무시간}}
+· 급여 : {{급여}}
+
+[ 자격 요건 ]
+{{자격}}
+
+[ 복리후생 ]
+{{복지}}
+
+{{상세}}
+
+지원 문의 : {{연락처}}
+접수 마감 : {{마감}}`,
+
+    daangn:
+`{{지역}} {{업체명}}에서 {{직무}}를 모집합니다.
+
+· 고용 형태 : {{근무형태}}
+· 근무 시간 : {{근무시간}}
+· 급여 : {{급여}}
+
+{{자격}}
+{{복지}}
+
+{{상세}}
+
+문의는 {{연락처}} 로 주시기 바랍니다.`,
+
+    openchat:
+`[{{지역}} {{직무}} 모집]
+{{업체명}} · {{근무형태}}
+근무 {{근무시간}} / 급여 {{급여}}
+문의 {{연락처}}`,
+
+    sms:
+`[{{업체명}}] {{지역}} {{직무}} 모집 {{근무시간}} {{급여}} 문의 {{연락처}}`,
+
+    etc:
+`{{업체명}} {{직무}} 모집
+
+· 근무지 : {{지역}}
+· 고용 형태 : {{근무형태}}
+· 근무 시간 : {{근무시간}}
+· 급여 : {{급여}}
+
+{{자격}}
+{{복지}}
+
+{{상세}}
+
+문의 {{연락처}} · 마감 {{마감}}`,
+  };
+
+  /* ══════════════ 친근·동네 ══════════════ */
+
+  const FRIENDLY = {
 
     blog:
 `[{{지역}}] {{업체명}} {{직무}} 구합니다
@@ -516,26 +600,152 @@ const Store = (() => {
 {{자격}}
 {{복지}}
 
+{{상세}}
+
 궁금한 점 있으시면 {{연락처}}로 편하게 연락 주세요.`,
 
     openchat:
-`[{{지역}} {{직무}} 구합니다]
+`{{지역}}에서 {{직무}} 함께 하실 분 찾아요
 {{업체명}} · {{근무형태}}
 {{근무시간}} / {{급여}}
-문의 {{연락처}}`,
+편하게 연락 주세요 {{연락처}}`,
 
     sms:
-`[{{업체명}}] {{지역}} {{직무}} 모집 {{급여}} 문의 {{연락처}}`,
+`[{{업체명}}] {{지역}} {{직무}} 구해요 {{근무시간}} {{급여}} 연락 {{연락처}}`,
 
     etc:
-`{{지역}} {{업체명}} {{직무}} 모집
+`{{지역}} {{업체명}} {{직무}} 구합니다
 
 {{근무형태}} / {{근무시간}} / {{급여}}
 {{자격}}
+{{복지}}
+
 {{상세}}
 
-문의 {{연락처}}`,
+편하게 연락 주세요 {{연락처}}`,
   };
+
+  /* ══════════════ 급구·간결 ══════════════ */
+
+  const URGENT = {
+
+    blog:
+`[급구] {{지역}} {{직무}} 바로 오실 분 찾습니다
+
+{{업체명}}입니다. {{직무}} 자리가 비어 급하게 글 올립니다.
+바로 시작하실 수 있는 분이면 좋겠습니다.
+
+■ 조건
+· 하는 일 : {{직무}}
+· 근무지 : {{지역}}
+· 근무 형태 : {{근무형태}}
+· 근무 시간 : {{근무시간}}
+· 급여 : {{급여}}
+
+■ 이 정도면 바로 시작하실 수 있습니다
+{{자격}}
+
+■ 챙겨 드리는 것
+{{복지}}
+
+{{상세}}
+
+연락 주시면 바로 안내드리겠습니다.
+{{연락처}}
+마감 : {{마감}}
+
+{{태그}}`,
+
+    cafe:
+`[급구] {{지역}} {{직무}} 구합니다
+
+{{업체명}}입니다. 사람이 급해 글 올립니다.
+
+· {{근무형태}} / {{근무시간}}
+· 급여 {{급여}}
+· 근무지 {{지역}}
+
+{{자격}}
+{{복지}}
+
+{{상세}}
+
+연락 주시면 바로 안내드리겠습니다. {{연락처}}
+마감 : {{마감}}`,
+
+    daangn:
+`{{지역}} {{업체명}}입니다. {{직무}} 급하게 구해요.
+
+{{근무시간}} / {{급여}}
+{{근무형태}}
+{{자격}}
+{{복지}}
+
+바로 연락 주세요. {{연락처}}`,
+
+    openchat:
+`[급구] {{지역}} {{직무}}
+{{근무시간}} / {{급여}}
+{{업체명}} · {{근무형태}}
+바로 연락 {{연락처}}`,
+
+    sms:
+`[급구] {{지역}} {{직무}} {{급여}} 바로 출근 가능 {{연락처}}`,
+
+    etc:
+`[급구] {{지역}} {{직무}}
+
+{{근무형태}} / {{근무시간}} / {{급여}}
+{{자격}}
+{{복지}}
+
+바로 연락 주세요 {{연락처}}`,
+  };
+
+  const TEMPLATES = { formal: FORMAL, friendly: FRIENDLY, urgent: URGENT };
+
+  /** 손대지 않은 원본 — [기본으로] 를 눌렀을 때 돌아갈 곳 */
+  const seed = () => JSON.parse(JSON.stringify(TEMPLATES));
+
+  return { STYLES, DEFAULT_STYLE, list, get, label, ids, TEMPLATES, seed };
+
+})();
+
+</script>
+<script>
+/* store.js — 저장소 · 데이터 모델
+ *
+ * 전부 기기 안(localStorage)에만 저장됩니다. 서버로 나가는 것이 없습니다.
+ * 기기를 바꿀 때는 [설정 → 내보내기] 로 만든 .json 파일을 옮기면 됩니다.
+ */
+
+const Store = (() => {
+
+  const KEY = 'guincaster.v1';
+
+  /* ─────────── 채널 종류 ───────────
+   * 종류마다 기본 문안 템플릿과 권장 글자수가 다릅니다.            */
+  const KINDS = {
+    blog:     { label: '블로그',   limit: 4000, desc: '길게 써도 되는 곳. 검색 유입을 노립니다.' },
+    cafe:     { label: '카페',     limit: 1500, desc: '지역 카페·커뮤니티. 본문은 중간 길이로.' },
+    daangn:   { label: '당근알바', limit:  800, desc: '동네 구인. 말투가 짧고 담백할수록 반응이 옵니다.' },
+    openchat: { label: '오픈톡·단톡', limit: 300, desc: '스크롤로 흘러가는 곳. 3~5줄이 한계입니다.' },
+    sms:      { label: '문자',     limit:   90, desc: 'LMS 기준. 넘기면 요금이 올라갑니다.' },
+    etc:      { label: '기타',     limit: 2000, desc: '' },
+  };
+
+  /* ─────────── 처음 켰을 때 들어있는 채널 ───────────
+   * 실제 쓰는 채널로 바꾸시면 됩니다. 오픈톡방은 방마다 하나씩 만드는 걸 권합니다.
+   * bumpDays = 며칠 뒤에 다시 올릴지 (끌어올리기 주기)                  */
+  const SEED_CHANNELS = [
+    { name: '네이버 블로그',   kind: 'blog',     url: 'https://blog.naver.com/GoBlogWrite.naver', bumpDays: 7 },
+    { name: '지역 맘카페',     kind: 'cafe',     url: '',                                        bumpDays: 7 },
+    { name: '당근알바',        kind: 'daangn',   url: 'https://www.daangn.com/kr/jobs/',          bumpDays: 3 },
+    { name: '오픈톡방 ①',      kind: 'openchat', url: '',                                        bumpDays: 2 },
+    { name: '동네 단톡방',     kind: 'openchat', url: '',                                        bumpDays: 2 },
+  ];
+
+  /* 문안 템플릿은 tone.js 가 말투별로 들고 있습니다. */
 
   const EMPTY_POSTING = () => ({
     id: uid(),
@@ -544,6 +754,7 @@ const Store = (() => {
     자격: '', 복지: '', 상세: '',
     연락처: '', 마감: '',
     태그: '',
+    style: Tone.DEFAULT_STYLE,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
@@ -572,10 +783,49 @@ const Store = (() => {
     return {
       postings: [],
       channels: SEED_CHANNELS.map((c, i) => ({ id: uid(), enabled: true, order: i, ...c })),
-      templates: { ...SEED_TEMPLATES },
+      templates: Tone.seed(),
       logs: [],
       settings: { cardTheme: 'ink' },
     };
+  }
+
+  /**
+   * 저장된 템플릿을 지금 구조에 맞춥니다.
+   *
+   * 말투가 생기기 전 저장본은 {blog:'…', cafe:'…'} 처럼 종류만 있었습니다.
+   * 그 문안들이 지금의 '친근·동네' 말투 그대로라, 친근 쪽으로 옮겨 담습니다.
+   * 직접 고쳐 쓰시던 문안이 그대로 살아남습니다.
+   */
+  function mergeTemplates(saved) {
+    const base = Tone.seed();
+    if (!saved || typeof saved !== 'object') return base;
+
+    const isNewShape = Tone.ids().some(id => saved[id]);
+    if (!isNewShape) {
+      const old = {};
+      for (const kind of Object.keys(KINDS)) {
+        if (typeof saved[kind] === 'string') old[kind] = saved[kind];
+      }
+      base.friendly = { ...base.friendly, ...old };
+      return base;
+    }
+
+    for (const id of Tone.ids()) {
+      if (saved[id] && typeof saved[id] === 'object') {
+        base[id] = { ...base[id], ...saved[id] };
+      }
+    }
+    return base;
+  }
+
+  /* 말투가 없던 시절의 공고에 기본 말투를 달아 줍니다.
+   *
+   * 화살표 함수(const)로 두면 안 됩니다. 맨 위의 `let state = load()` 가
+   * 이 줄보다 먼저 실행되는데, const 는 그때 아직 없는 것으로 취급돼
+   * load() 안에서 터지고, 그 오류가 try/catch 에 삼켜져
+   * 저장해 둔 내용이 통째로 사라집니다. 선언문이어야 끌어올려집니다.        */
+  function fillPostings(list) {
+    return (list || []).map(p => (p.style ? p : { ...p, style: Tone.DEFAULT_STYLE }));
   }
 
   function load() {
@@ -586,14 +836,16 @@ const Store = (() => {
       // 나중에 항목이 늘어나도 예전 저장본이 깨지지 않게 채워 둡니다.
       const base = blank();
       return {
-        postings: s.postings || [],
+        postings: fillPostings(s.postings),
         channels: s.channels || base.channels,
-        templates: { ...base.templates, ...(s.templates || {}) },
+        templates: mergeTemplates(s.templates),
         logs: s.logs || [],
         settings: { ...base.settings, ...(s.settings || {}) },
       };
     } catch (e) {
-      console.warn('저장본을 읽지 못해 새로 시작합니다', e);
+      // 여기로 오면 저장해 둔 내용이 통째로 버려집니다.
+      // 조용히 넘어가면 알아챌 방법이 없으니 확실하게 남깁니다.
+      console.error('저장본을 읽지 못해 새로 시작합니다 — 저장된 내용이 사라집니다', e);
       return blank();
     }
   }
@@ -681,23 +933,32 @@ const Store = (() => {
     save();
   }
 
-  /* ─────────── 문안 템플릿 ─────────── */
+  /* ─────────── 문안 템플릿 ───────────
+   * 말투(style) × 채널 종류(kind) 로 한 벌씩 있습니다.            */
 
-  /** 채널에 개별 템플릿이 있으면 그것을, 없으면 종류별 기본 템플릿을 씁니다. */
-  function templateFor(ch) {
+  const styleOf = (s) => (state.templates[s] ? s : Tone.DEFAULT_STYLE);
+
+  /**
+   * 채널에 개별 템플릿이 걸려 있으면 그것이 우선입니다 (말투와 무관하게 그 채널만의 문안).
+   * 없으면 말투 × 종류의 기본 문안을 씁니다.
+   */
+  function templateFor(ch, style) {
     if (ch && ch.template) return ch.template;
-    return state.templates[ch ? ch.kind : 'etc'] || state.templates.etc;
+    const set = state.templates[styleOf(style)];
+    return set[ch ? ch.kind : 'etc'] || set.etc;
   }
 
-  function setTemplate(kind, text) {
-    state.templates[kind] = text;
+  function setTemplate(style, kind, text) {
+    state.templates[styleOf(style)][kind] = text;
     save();
   }
 
-  function resetTemplate(kind) {
-    state.templates[kind] = SEED_TEMPLATES[kind];
+  function resetTemplate(style, kind) {
+    state.templates[styleOf(style)][kind] = Tone.TEMPLATES[styleOf(style)][kind];
     save();
   }
+
+  const templateOf = (style, kind) => state.templates[styleOf(style)][kind] || '';
 
   /* ─────────── 게재 이력 ─────────── */
 
@@ -777,9 +1038,9 @@ const Store = (() => {
     const data = parsed.data || parsed;
     if (!data || !Array.isArray(data.postings)) throw new Error('구인 캐스터 백업 파일이 아닙니다.');
     state = {
-      postings: data.postings || [],
+      postings: fillPostings(data.postings),
       channels: data.channels || blank().channels,
-      templates: { ...SEED_TEMPLATES, ...(data.templates || {}) },
+      templates: mergeTemplates(data.templates),
       logs: data.logs || [],
       settings: { ...blank().settings, ...(data.settings || {}) },
     };
@@ -795,10 +1056,329 @@ const Store = (() => {
     KINDS, FIELDS, EMPTY_POSTING, uid,
     postings, posting, upsertPosting, removePosting, duplicatePosting,
     channels, channel, activeChannels, upsertChannel, removeChannel, moveChannel,
-    templateFor, setTemplate, resetTemplate, templates: () => state.templates,
+    templateFor, templateOf, setTemplate, resetTemplate, templates: () => state.templates,
     logPost, unlogLast, logs, lastPostedAt, statusOf, todo,
     settings, setSetting, exportJSON, importJSON, wipe,
   };
+
+})();
+
+</script>
+<script>
+/* parse.js — 남의 공고를 붙여넣으면 뜯어서 항목으로 나눕니다.
+ *
+ * 하는 일: 급여·근무시간·근무형태·지역·직무 같은 **사실**을 찾아내
+ *          내 공고 항목에 채워 넣습니다. 그러면 내 말투로 다시 쓰입니다.
+ *
+ * 일부러 하지 않는 일:
+ *   · 상대 업체의 상호와 연락처는 **가져오지 않습니다.** 찾아내되 따로 빼서
+ *     "이건 넣지 않았습니다" 하고 보여주기만 합니다. 그대로 두면 남의 가게로
+ *     지원 전화가 갑니다.
+ *   · 상대가 쓴 문장을 상세 설명에 그대로 복사하지 않습니다. 남의 글이고,
+ *     베낀 티가 나는 공고는 어차피 반응이 없습니다.
+ *     참고하고 싶으면 원문을 따로 보여드리니 직접 골라 쓰시면 됩니다.
+ */
+
+const Parse = (() => {
+
+  /* 자주 쓰이는 직무 이름. 여기 걸리면 가장 믿을 만합니다. */
+  const JOBS = [
+    '주방보조', '주방 보조', '조리보조', '조리사', '주방장', '홀서빙', '서빙', '홀알바', '홀 담당',
+    '카운터', '캐셔', '캐시어', '바리스타', '제빵', '제과', '베이커리',
+    '배달', '배송', '라이더', '기사', '운전', '상하차', '물류', '검수', '포장', '피킹',
+    '판매', '매장관리', '매니저', '점장',
+    '청소', '미화', '경비', '주차', '세차',
+    '사무보조', '경리', '회계', '총무', '인사', '고객상담', '상담원', '텔레마케터',
+    '간호조무사', '간호사', '요양보호사', '사회복지사', '보육교사', '보조교사', '강사',
+    '생산직', '조립', '가공', '용접', '도장', '전기', '설비',
+    '헤어', '미용', '네일', '피부관리', '헬퍼', '보조',
+    '디자이너', '개발자', '마케터', 'MD', '영업',
+  ];
+
+  const FORMS = [
+    [/주\s*(\d)\s*일/, (m) => `주 ${m[1]}일`],
+    [/주말\s*(?:알바|근무)?/, () => '주말'],
+    [/평일\s*(?:알바|근무)?/, () => '평일'],
+    [/단기/, () => '단기'],
+    [/장기/, () => '장기'],
+    [/파트\s?타임|파트/, () => '파트타임'],
+    [/풀\s?타임/, () => '풀타임'],
+    [/정규직/, () => '정규직'],
+    [/계약직/, () => '계약직'],
+    [/아르바이트|알바/, () => '아르바이트'],
+    [/오전\s?타임/, () => '오전타임'],
+    [/오후\s?타임/, () => '오후타임'],
+    [/마감\s?타임/, () => '마감타임'],
+    [/시간\s?협의/, () => '시간 협의'],
+    [/교대/, () => '교대'],
+  ];
+
+  const BENEFIT_WORDS = /식사|중식|석식|조식|밥|4대\s?보험|사대보험|보험|퇴직금|퇴직 ?연금|주차|인센티브|상여|명절|휴게|기숙사|숙소|간식|유니폼|교통비|월차|연차|승진|정직원 ?전환/;
+  const REQUIRE_HEAD  = /^[\[\(\s■·\-*●▶]*\s*(지원\s?자격|자격\s?요건|우대\s?사항|자격|우대|조건|경력|필수)/;
+  const BENEFIT_HEAD  = /^[\[\(\s■·\-*●▶]*\s*(복리\s?후생|근무\s?조건|복리|복지|혜택)/;
+
+  /** 일할 곳 이름. 직무를 못 찾았을 때 "편의점 알바" 식으로 씁니다. */
+  const PLACES = [
+    '편의점', 'PC방', '피시방', '주유소', '노래방', '고깃집', '치킨집', '호프', '술집',
+    '카페', '베이커리', '빵집', '분식집', '식당', '마트', '정육점', '세차장',
+    '물류센터', '공장', '미용실', '네일샵', '학원', '독서실', '펜션', '모텔',
+    '헬스장', '요양원', '어린이집', '병원', '약국',
+  ];
+
+  /** 접미사가 없어 따로 봐야 하는 광역 단위 */
+  const REGIONS = [
+    '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
+    '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
+  ];
+
+  /** 끝이 '구' 지만 지역이 아닌 말들 — "3번 출구" 같은 것에 걸리지 않도록 */
+  const NOT_AREA = /^(급구|충원|출구|입구|창구|연구|요구|지구|학구|친구|도구|기구|가구|인구|축구|야구|농구|배구|탁구|안구|절구|욕구|생구|화구)$/;
+
+  /** 끝이 '면' 이지만 지역이 아닌 말들 — "근무하시면" 같은 활용형 */
+  const VERBISH = /하시|합니|습니|(하|되|이|으|었|겠|드|주|보|가|오|시)면$/;
+
+  const clean = (s) => String(s || '')
+    .replace(/^[\s■·\-*●▶◆▪️•]+/, '')
+    .replace(/^[\[\(]\s*/, '')
+    .replace(/\s*[\]\)]\s*$/, '')
+    .replace(/^[^:：]{1,12}[:：]\s*/, '')   // "급여 : " 같은 앞머리 제거
+    .trim();
+
+  /** 값만 남깁니다 — 항목 이름을 지우지 않습니다 (이미 떼어낸 뒤에 씁니다). */
+  const tidy = (s) => String(s || '')
+    .replace(/^[\s■·\-*●▶◆▪️•]+/, '')
+    .replace(/\s*[\]\)]\s*$/, '')
+    .trim();
+
+  /** "■ 자격 요건 : 경력무관" → "경력무관" (머리말만 있으면 빈 문자열) */
+  function afterHead(line, re) {
+    const m = line.match(re);
+    if (!m) return tidy(line);
+    return tidy(line.slice(m[0].length).replace(/^[\s:：\-·]+/, ''));
+  }
+
+  /* ─────────── 항목별 찾기 ─────────── */
+
+  /** 12000 → 12,000 (이미 쉼표가 있으면 그대로) */
+  const comma = (s) => /,/.test(s) ? s : s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  function findPay(t) {
+    let m = t.match(/(시급|일급|주급|월급|연봉)\s*[:：]?\s*([\d][\d,]*)(\s*만)?\s*(원)?/);
+    if (m) {
+      const man = m[3] ? '만' : '';
+      const num = man ? m[2] : comma(m[2]);   // "280만원" 은 쉼표를 넣지 않습니다
+      return `${m[1]} ${num}${man}원`;
+    }
+    m = t.match(/(시급|일급|주급|월급|연봉)\s*[:：]?\s*협의/);
+    if (m) return `${m[1]} 협의`;
+
+    m = t.match(/월\s*([\d,]+)\s*만\s*원/);
+    if (m) return `월급 ${m[1]}만원`;
+
+    m = t.match(/([\d,]{4,})\s*원\s*\/?\s*(?:시간|시)/);
+    if (m) return `시급 ${m[1]}원`;
+
+    if (/급여\s*[:：]?\s*협의|보수\s*협의/.test(t)) return '협의';
+    return '';
+  }
+
+  function findHours(t) {
+    const AMPM = '(?:오전|오후|아침|저녁|밤|새벽|낮|점심)?';
+    let m = t.match(new RegExp(`(${AMPM}\\s*\\d{1,2}\\s*시(?:\\s*\\d{1,2}\\s*분)?)\\s*[~\\-–—]\\s*(${AMPM}\\s*\\d{1,2}\\s*시(?:\\s*\\d{1,2}\\s*분)?)`));
+    if (m) return `${m[1].replace(/\s+/g, ' ').trim()} ~ ${m[2].replace(/\s+/g, ' ').trim()}`;
+
+    m = t.match(/(\d{1,2}:\d{2})\s*[~\-–—]\s*(\d{1,2}:\d{2})/);
+    if (m) return `${m[1]} ~ ${m[2]}`;
+
+    m = t.match(/(\d{1,2})\s*[~\-–—]\s*(\d{1,2})\s*시/);
+    if (m) return `${m[1]}시 ~ ${m[2]}시`;
+
+    return '';
+  }
+
+  function findForm(t) {
+    const out = [];
+    for (const [re, make] of FORMS) {
+      const m = t.match(re);
+      if (m) {
+        const v = make(m);
+        if (!out.includes(v)) out.push(v);
+      }
+    }
+    return out.slice(0, 3).join(' · ');
+  }
+
+  function findArea(t) {
+    const hits = [];
+    const push = (v) => { if (v && !hits.includes(v)) hits.push(v); };
+
+    // 서울·경기처럼 접미사가 없는 광역 단위
+    const big = REGIONS.find(r => t.includes(r)) || '';
+
+    // 시·군·구가 가장 믿을 만합니다. ("서구" 처럼 한 글자짜리도 있습니다)
+    for (const m of t.matchAll(/([가-힣]{1,5}(?:시|군|구))(?![가-힣])/g)) {
+      if (!NOT_AREA.test(m[1])) push(m[1]);
+    }
+    // 앞의 것이 없을 때만 역 이름
+    if (!hits.length) {
+      for (const m of t.matchAll(/([가-힣A-Za-z0-9]{2,8}역)(?![가-힣])/g)) push(m[1]);
+    }
+    // 동·읍·면은 오탐이 많아(근무하시면…) 마지막에 봅니다.
+    if (!hits.length) {
+      for (const m of t.matchAll(/([가-힣]{2,4}(?:동|읍|면))(?![가-힣])/g)) {
+        if (!VERBISH.test(m[1])) push(m[1]);
+      }
+    }
+
+    const out = hits.slice(0, 2);
+    if (big && !out.some(v => v.startsWith(big))) out.unshift(big);
+    return out.slice(0, 3).join(' ');
+  }
+
+  function findJob(t) {
+    // 1) 알려진 직무 이름 — 가장 정확합니다.
+    for (const j of JOBS) {
+      if (t.includes(j)) return j.replace(/\s+/g, '');
+    }
+    // 2) "○○ 모집 / 구합니다" 앞의 말
+    const m = t.match(/([가-힣A-Za-z]{2,10})\s*(?:직원)?\s*(?:을|를)?\s*(?:모집|구인|채용|구합니다|구해요|구함)/);
+    if (m) {
+      const w = m[1].replace(/^(급구|알바|신입|경력|정규직|계약직|직원|사람)$/, '');
+      if (w && w.length >= 2) return w;
+    }
+    // 3) 직무 이름이 없으면 일할 곳으로 — "편의점 알바" 처럼
+    for (const p of PLACES) {
+      if (t.includes(p)) return p + ' 알바';
+    }
+    return '';
+  }
+
+  function findDeadline(t) {
+    if (/채용\s?시\s?마감|충원\s?시\s?마감/.test(t)) return '채용 시 마감';
+    if (/상시\s?(모집|채용)/.test(t)) return '상시 모집';
+    const m = t.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*(?:까지|마감)/);
+    if (m) return `${m[1]}월 ${m[2]}일까지`;
+    return '';
+  }
+
+  /** 줄 단위로 훑어야 하는 항목 (자격·복지) */
+  function findBlocks(lines) {
+    const req = [], ben = [];
+    const usedIdx = new Set();
+
+    lines.forEach((line, i) => {
+      if (!line || usedIdx.has(i)) return;
+
+      /* "■ 자격 요건" 처럼 머리말만 있는 줄과
+         "자격요건 : 경력무관" 처럼 값이 붙은 줄을 같이 다룹니다.
+         머리말은 값에 섞이지 않게 떼어냅니다.                        */
+      const collect = (head, into, span) => {
+        const rest = afterHead(line, head);
+        if (rest) { into.push(rest); }
+        usedIdx.add(i);
+
+        for (let j = i + 1; j < Math.min(i + span, lines.length); j++) {
+          if (!lines[j] || /^[\[\(■]/.test(lines[j])) break;
+          // 값이 이미 붙어 있던 줄이면, 뒤따르는 항목 줄만 더 가져옵니다.
+          if (rest && !/^[·\-*●▶▪️•]/.test(lines[j])) break;
+          const v = clean(lines[j]);
+          if (v) { into.push(v); usedIdx.add(j); }
+        }
+      };
+
+      if (REQUIRE_HEAD.test(line))  { collect(REQUIRE_HEAD, req, 5); return; }
+      if (BENEFIT_HEAD.test(line))  { collect(BENEFIT_HEAD, ben, 6); return; }
+
+      // 머리말이 없어도 복지 낱말이 들어간 짧은 줄은 복지로 봅니다.
+      if (BENEFIT_WORDS.test(line) && line.length <= 40) {
+        const v = clean(line);
+        if (v && !ben.includes(v)) { ben.push(v); usedIdx.add(i); }
+      }
+    });
+
+    return {
+      자격: [...new Set(req)].slice(0, 4).join('\n'),
+      복지: [...new Set(ben)].slice(0, 5).join(', '),
+      usedIdx,
+    };
+  }
+
+  /* ─────────── 상대 업체 것 (가져오지 않음) ─────────── */
+
+  function findTheirs(t, lines, area) {
+    const theirs = {};
+
+    const phone = t.match(/(01[016789])[-.\s]?(\d{3,4})[-.\s]?(\d{4})/)
+               || t.match(/(0\d{1,2})[-.\s]?(\d{3,4})[-.\s]?(\d{4})/);
+    if (phone) theirs.연락처 = phone.slice(1).join('-');
+
+    // 맨 앞 [상호]. 다만 "[강남]" 처럼 지역을 넣어두는 경우가 많아 걸러냅니다.
+    const looksLikeArea = (v) =>
+      /(시|군|구|동|읍|면|역)$/.test(v) ||
+      REGIONS.some(r => v === r || v.startsWith(r)) ||
+      (area && area.includes(v));
+
+    let name = '';
+    const bracket = (lines[0] || '').match(/^\[([^\]]{2,20})\]/);
+    if (bracket && !looksLikeArea(bracket[1].trim())) name = bracket[1].trim();
+
+    if (!name) {
+      const m = t.match(/([가-힣A-Za-z0-9]{2,10}(?:\s[가-힣A-Za-z0-9]{1,8})?)\s*(?:에서|입니다)/);
+      if (m) name = m[1].trim();
+    }
+    if (name && !/모집|구인|채용|급구|알바/.test(name) && !looksLikeArea(name)) {
+      theirs.업체명 = name;
+    }
+
+    return theirs;
+  }
+
+  /* ─────────── 본체 ─────────── */
+
+  /**
+   * @returns {{fields, theirs, leftover, found:string[], missing:string[]}}
+   *   fields   내 공고에 채워 넣을 항목
+   *   theirs   상대 업체 것이라 일부러 빼둔 항목
+   *   leftover 어디에도 안 들어간 원문 줄들 (참고용)
+   */
+  function analyze(raw) {
+    const text = String(raw || '').replace(/\r/g, '').trim();
+    const lines = text.split('\n').map(l => l.trim());
+    const flat = text.replace(/\n/g, ' ');
+
+    const blocks = findBlocks(lines);
+
+    const fields = {
+      직무:     findJob(flat),
+      지역:     findArea(flat),
+      근무형태: findForm(flat),
+      근무시간: findHours(flat),
+      급여:     findPay(flat),
+      자격:     blocks.자격,
+      복지:     blocks.복지,
+      마감:     findDeadline(flat),
+    };
+
+    const theirs = findTheirs(text, lines, fields.지역);
+
+    // 어느 항목에도 안 쓰인 줄 = 상대가 직접 쓴 문장. 참고용으로만 보여줍니다.
+    const consumed = new Set(blocks.usedIdx);
+    const leftover = lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l, i }) =>
+        l && !consumed.has(i) && l.length > 6 &&
+        !/^[\[\(■·\-*=─━]+$/.test(l) &&
+        !(theirs.연락처 && l.includes(theirs.연락처.replace(/-/g, ''))) &&
+        !/01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/.test(l))
+      .map(({ l }) => l);
+
+    const found   = Object.entries(fields).filter(([, v]) => v).map(([k]) => k);
+    const missing = Object.entries(fields).filter(([, v]) => !v).map(([k]) => k);
+
+    return { fields, theirs, leftover, found, missing };
+  }
+
+  return { analyze, JOBS };
 
 })();
 
@@ -856,9 +1436,12 @@ const Compose = (() => {
       .trim();
   }
 
-  /** 채널 하나에 올릴 문안 */
-  function forChannel(posting, channel) {
-    return render(Store.templateFor(channel), posting);
+  /**
+   * 채널 하나에 올릴 문안.
+   * 말투를 따로 넘기면 그 말투로 뽑습니다 (공고에 저장된 말투는 그대로 둔 채 비교해 볼 때).
+   */
+  function forChannel(posting, channel, style) {
+    return render(Store.templateFor(channel, style || posting.style), posting);
   }
 
   /** 글자수 상태 — 채널 권장 길이를 넘었는지 */
@@ -1306,6 +1889,27 @@ const UI = (() => {
     return `${dt.getMonth() + 1}월 ${dt.getDate()}일`;
   }
 
+  /** 말투 고르는 칩 줄. onPick(styleId) 로 알려줍니다. */
+  function styleChips(current, onPick) {
+    const id = 'sc' + Math.random().toString(36).slice(2, 7);
+    const html = `<div class="chips style-chips" id="${id}">
+      ${Tone.list().map(s => `
+        <span class="chip ${s.id === current ? 'on' : ''}" data-s="${s.id}">${esc(s.label)}</span>`).join('')}
+    </div>`;
+    // 그려진 뒤에 붙여야 해서, 붙이는 일은 돌려주는 함수에 맡깁니다.
+    const bind = (root) => {
+      const box = (root || document).querySelector('#' + id);
+      if (!box) return;
+      box.querySelectorAll('.chip').forEach(c => {
+        c.onclick = () => {
+          box.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === c));
+          onPick(c.dataset.s);
+        };
+      });
+    };
+    return { html, bind };
+  }
+
   function statusPill(s) {
     if (s.status === 'never') return `<span class="badge-pill b-never">미게재</span>`;
     if (s.status === 'due')   return `<span class="badge-pill b-due">올릴 때 · ${when(s.at)}</span>`;
@@ -1360,7 +1964,8 @@ const UI = (() => {
   }
 
   function paintTabs() {
-    const map = { home: 'home', edit: 'home', cast: 'cast', castPick: 'cast', castRun: 'cast',
+    const map = { home: 'home', edit: 'home', importPaste: 'home',
+                  cast: 'cast', castPick: 'cast', castRun: 'cast',
                   channels: 'channels', templates: 'channels', more: 'more' };
     const active = map[route.name] || 'home';
     const due = Store.todo().filter(t => t.status === 'due').length;
@@ -1405,6 +2010,9 @@ const UI = (() => {
           <p>공고를 한 번만 쓰면<br>채널 수만큼 문안이 자동으로 만들어집니다.</p>
         </div>
         <button class="btn primary" id="firstBtn">첫 공고 쓰기</button>
+        <div class="btn-row">
+          <button class="btn" id="importBtn">다른 공고 보고 만들기</button>
+        </div>
         <div class="info">
           이 앱은 글을 대신 올려주지 않습니다. 블로그·카페·당근·오픈톡 어디에도
           외부 프로그램이 글을 등록하는 통로가 없기 때문입니다.
@@ -1416,6 +2024,7 @@ const UI = (() => {
         Store.upsertPosting(p);
         go('edit', p.id);
       };
+      view.querySelector('#importBtn').onclick = () => go('importPaste');
       return;
     }
 
@@ -1437,13 +2046,19 @@ const UI = (() => {
           <div class="card-sub">${esc(Compose.summary(p))}</div>
           <div class="card-sub" style="margin-top:6px">
             <span class="badge-pill ${posted ? 'b-fresh' : 'b-never'}">${posted}/${chs.length} 채널</span>
+            <span class="badge-pill b-never">${esc(Tone.label(p.style))}</span>
             &nbsp;수정 ${when(p.updatedAt)}
           </div>
         </div>`;
-      }).join('')}`;
+      }).join('')}
+
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn" id="importBtn">다른 공고 보고 만들기</button>
+      </div>`;
 
     const dueCard = view.querySelector('#dueCard');
     if (dueCard) dueCard.onclick = () => tabTo('cast');
+    view.querySelector('#importBtn').onclick = () => go('importPaste');
     view.querySelectorAll('.card[data-id]').forEach(el => {
       el.onclick = () => go('edit', el.dataset.id);
     });
@@ -1457,7 +2072,19 @@ const UI = (() => {
 
     setTop('공고 쓰기', '완료', () => { flush(); back(); });
 
+    const tone = styleChips(p.style, (s) => {
+      p.style = s;
+      Store.upsertPosting(p);
+      view.querySelector('#toneDesc').textContent = Tone.get(s).desc;
+      toast(Tone.label(s) + ' 말투로 씁니다');
+    });
+
     view.innerHTML = `
+      <div class="section-label">말투</div>
+      ${tone.html}
+      <div class="info" id="toneDesc" style="margin-top:8px">${esc(Tone.get(p.style).desc)}</div>
+
+      <div class="section-label">내용</div>
       ${Store.FIELDS.map(f => `
         <div class="field">
           <label for="f-${f.key}">${esc(f.key)} <span class="hint">${esc(f.hint)}</span></label>
@@ -1472,12 +2099,14 @@ const UI = (() => {
         <button class="btn primary" id="goCast">이 공고 올리러 가기</button>
       </div>
       <div class="btn-row">
-        <button class="btn" id="previewBtn">채널별 문안 보기</button>
+        <button class="btn" id="previewBtn">문안 미리보기</button>
         <button class="btn" id="dupBtn">복제</button>
       </div>
       <div class="btn-row">
         <button class="btn ghost danger" id="delBtn">이 공고 삭제</button>
       </div>`;
+
+    tone.bind(view);
 
     const inputs = view.querySelectorAll('[data-key]');
     let timer;
@@ -1524,19 +2153,179 @@ const UI = (() => {
     };
   };
 
-  /** 채널별로 어떤 문안이 나오는지 한 번에 훑어보는 시트 */
+  /**
+   * 채널별로 어떤 문안이 나오는지 훑어보는 시트.
+   * 위쪽 말투 칩을 누르면 그 자리에서 전부 다시 쓰입니다 — 말투를 비교해 보고 고르는 곳입니다.
+   */
   function previewSheet(p) {
     const chs = Store.activeChannels();
-    openSheet('채널별 문안', chs.map(ch => {
-      const text = Compose.forChannel(p, ch);
-      const m = Compose.measure(text, ch);
-      return `
-        <div class="section-label">${esc(ch.name)}</div>
-        <div class="preview" style="max-height:200px">${esc(text) || '<i>내용이 없습니다</i>'}</div>
-        <div class="counter ${m.over ? 'over' : ''}">
-          <span>${m.count}자</span><span>권장 ${m.limit}자</span>
-        </div>`;
-    }).join('') || '<div class="info">켜져 있는 채널이 없습니다.</div>');
+    if (!chs.length) return openSheet('문안 미리보기', '<div class="info">켜져 있는 채널이 없습니다.</div>');
+
+    let shown = p.style;
+    const tone = styleChips(shown, (s) => { shown = s; paint(); });
+
+    openSheet('문안 미리보기', `
+      ${tone.html}
+      <div class="info" id="pvNote" style="margin-top:8px"></div>
+      <div id="pvBody"></div>
+      <div class="btn-row"><button class="btn primary" id="pvUse">이 말투로 정하기</button></div>`,
+      (root) => {
+        tone.bind(root);
+        root.querySelector('#pvUse').onclick = () => {
+          p.style = shown;
+          Store.upsertPosting(p);
+          closeSheet();
+          render();
+          toast(Tone.label(shown) + ' 말투로 정했습니다');
+        };
+        paint();
+      });
+
+    function paint() {
+      const body = sheetBody.querySelector('#pvBody');
+      const note = sheetBody.querySelector('#pvNote');
+      const use  = sheetBody.querySelector('#pvUse');
+      if (!body) return;
+
+      note.textContent = Tone.get(shown).desc;
+      use.textContent = shown === p.style
+        ? `지금 이 말투입니다 — ${Tone.label(shown)}`
+        : `${Tone.label(shown)} 말투로 정하기`;
+      use.disabled = shown === p.style;
+
+      body.innerHTML = chs.map(ch => {
+        const text = Compose.forChannel(p, ch, shown);
+        const m = Compose.measure(text, ch);
+        return `
+          <div class="section-label">${esc(ch.name)}${ch.template ? ' · 이 채널만의 문안' : ''}</div>
+          <div class="preview" style="max-height:200px">${esc(text) || '<i>내용이 없습니다</i>'}</div>
+          <div class="counter ${m.over ? 'over' : ''}">
+            <span>${m.count}자</span><span>권장 ${m.limit}자</span>
+          </div>`;
+      }).join('');
+    }
+  }
+
+  /* ═══════════════ 다른 공고 보고 만들기 ═══════════════ */
+
+  VIEWS.importPaste = () => {
+    setTop('다른 공고 보고 만들기');
+
+    view.innerHTML = `
+      <div class="info">
+        마음에 드는 다른 업체 공고를 통째로 붙여넣으세요.
+        급여·근무시간·근무형태·지역·직무를 뽑아내 <b>내 공고 항목에 채워 넣습니다.</b>
+        그 다음 내가 고른 말투로 다시 쓰이니, 조건만 참고하고 글은 내 것이 됩니다.
+      </div>
+
+      <div class="field">
+        <label>붙여넣기</label>
+        <textarea class="textarea tall" id="src" placeholder="다른 업체 공고를 여기에 붙여넣으세요"></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="readBtn">분석하기</button>
+        <button class="btn" id="pasteBtn">클립보드에서</button>
+      </div>
+
+      <div class="notice" style="background:var(--sunk);color:var(--dim)">
+        상대 업체의 <b>상호와 연락처는 가져오지 않습니다.</b> 그대로 두면 남의 가게로 지원 전화가 갑니다.
+        상대가 쓴 문장도 그대로 옮기지 않습니다 — 베낀 티가 나는 공고는 어차피 반응이 없고, 남의 글입니다.
+      </div>`;
+
+    const src = view.querySelector('#src');
+
+    view.querySelector('#pasteBtn').onclick = async () => {
+      try {
+        const t = await navigator.clipboard.readText();
+        if (!t || !t.trim()) return toast('클립보드가 비어 있습니다');
+        src.value = t;
+        toast('붙여넣었습니다');
+      } catch (e) {
+        toast('클립보드를 읽을 수 없습니다. 길게 눌러 붙여넣어 주세요');
+      }
+    };
+
+    view.querySelector('#readBtn').onclick = () => {
+      const raw = src.value.trim();
+      if (raw.length < 10) return toast('공고 내용을 붙여넣어 주세요');
+      resultSheet(Parse.analyze(raw));
+    };
+  };
+
+  /** 분석 결과를 보여주고, 확인하면 공고로 만듭니다. */
+  function resultSheet(res) {
+    const { fields, theirs, leftover, found, missing } = res;
+    const has = Object.entries(fields).filter(([, v]) => v);
+
+    openSheet('찾아낸 것', `
+      ${has.length ? `
+        <div class="section-label">내 공고에 채울 항목 ${found.length}개</div>
+        ${has.map(([k, v]) => `
+          <div class="row">
+            <div class="body">
+              <div class="meta">${esc(k)}</div>
+              <div class="name" style="white-space:pre-wrap">${esc(v)}</div>
+            </div>
+          </div>`).join('')}
+      ` : `<div class="notice">알아볼 수 있는 항목이 없었습니다.
+             공고 형식이 많이 다르면 못 읽습니다 — 직접 쓰시는 편이 빠릅니다.</div>`}
+
+      ${missing.length ? `
+        <div class="section-label">못 찾은 항목</div>
+        <div class="info">${esc(missing.join(' · '))} — 직접 채워 주세요.</div>` : ''}
+
+      ${(theirs.업체명 || theirs.연락처) ? `
+        <div class="section-label">일부러 안 가져온 것</div>
+        <div class="notice">
+          ${theirs.업체명 ? `상호 <b>${esc(theirs.업체명)}</b><br>` : ''}
+          ${theirs.연락처 ? `연락처 <b>${esc(theirs.연락처)}</b><br>` : ''}
+          상대 업체 것입니다. 내 상호와 내 번호를 직접 넣으세요.
+        </div>` : ''}
+
+      ${leftover.length ? `
+        <div class="section-label">원문에서 남은 문장 ${leftover.length}줄</div>
+        <div class="preview" style="max-height:160px">${esc(leftover.join('\n'))}</div>
+        <label class="pick" id="keepRaw" style="margin-top:8px">
+          <span class="box"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="body">
+            <span class="name">이 문장들도 상세 설명에 넣기</span>
+            <span class="meta">참고용입니다. 그대로 두지 말고 내 말로 고쳐 쓰세요</span>
+          </span>
+        </label>` : ''}
+
+      <div class="section-label">말투</div>
+      <div id="impTone"></div>
+
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn primary" id="makeBtn">이걸로 공고 만들기</button>
+      </div>`,
+      (root) => {
+        let style = Tone.DEFAULT_STYLE;
+        const tone = styleChips(style, (s) => { style = s; });
+        root.querySelector('#impTone').innerHTML = tone.html;
+        tone.bind(root);
+
+        let keep = false;
+        const box = root.querySelector('#keepRaw');
+        if (box) box.onclick = (e) => {
+          e.preventDefault();
+          keep = !keep;
+          box.classList.toggle('on', keep);
+        };
+
+        root.querySelector('#makeBtn').onclick = () => {
+          const p = Store.EMPTY_POSTING();
+          Object.entries(fields).forEach(([k, v]) => { if (v) p[k] = v; });
+          if (keep && leftover.length) p.상세 = leftover.join('\n');
+          p.style = style;
+          Store.upsertPosting(p);
+          closeSheet();
+          stack = [];
+          go('edit', p.id, true);
+          toast('업체명과 연락처를 채워 주세요');
+        };
+      });
   }
 
   /* ═══════════════ 게재 — 공고 고르기 ═══════════════ */
@@ -1669,6 +2458,15 @@ const UI = (() => {
     const ch = queue.current;
     const kind = Store.KINDS[ch.kind] || Store.KINDS.etc;
     const text = draftText !== null ? draftText : Compose.forChannel(p, ch);
+
+    // 올리려다 말투가 안 맞는다 싶을 때 여기서 바로 바꿉니다. 공고에도 저장됩니다.
+    const runTone = styleChips(p.style, (s) => {
+      p.style = s;
+      Store.upsertPosting(p);
+      draftText = null;       // 손봤던 문안은 버리고 새 말투로 다시 뽑습니다
+      render();
+      toast(Tone.label(s) + ' 말투로 바꿨습니다');
+    });
     const m = Compose.measure(text, ch);
     const total = queue.ids.length;
     const step = queue.index + 1;
@@ -1706,6 +2504,9 @@ const UI = (() => {
         <button class="btn" id="cardBtn">이미지 카드</button>
       </div>
 
+      <div class="section-label">말투 바꿔보기</div>
+      ${runTone.html}
+
       <div class="btn-row" style="margin-top:20px">
         <button class="btn primary" id="doneBtn">올렸어요 → 다음</button>
       </div>
@@ -1720,6 +2521,7 @@ const UI = (() => {
       </div>` : ''}`;
 
     const el = (s) => view.querySelector(s);
+    runTone.bind(view);
 
     el('#copyOpen').onclick = async () => {
       const ok = await Publish.copy(text);
@@ -1969,14 +2771,26 @@ const UI = (() => {
 
   /* ═══════════════ 문안 템플릿 ═══════════════ */
 
+  /** 마지막으로 편집하던 말투 — 화면을 다시 그려도 유지됩니다. */
+  let editingStyle = Tone.DEFAULT_STYLE;
+
   VIEWS.templates = (kind) => {
     const k = Store.KINDS[kind] ? kind : 'etc';
     const info = Store.KINDS[k];
 
     setTop(`${info.label} 문안`, '저장', save);
 
+    const tone = styleChips(editingStyle, (s) => {
+      if (dirty && !confirm('고치던 내용을 버리고 다른 말투로 넘어갈까요?')) { render(); return; }
+      editingStyle = s;
+      render();
+    });
+
     view.innerHTML = `
-      <div class="info">
+      <div class="section-label">어느 말투의 문안을 고칠까요</div>
+      ${tone.html}
+
+      <div class="info" style="margin-top:8px">
         <b>{{항목}}</b> 자리에 공고 내용이 들어갑니다.<br>
         내용이 비어 있는 항목이 들어간 <b>줄은 통째로 사라집니다</b> — 빈칸을 남겨도 문안이 깨지지 않습니다.
       </div>
@@ -1984,7 +2798,7 @@ const UI = (() => {
         ${Compose.tokens().map(t => `<span class="chip" data-t="${esc(t)}">${esc(t)}</span>`).join('')}
       </div>
       <div class="field" style="margin-top:12px">
-        <textarea class="textarea tall" id="tpl">${esc(Store.templates()[k])}</textarea>
+        <textarea class="textarea tall" id="tpl">${esc(Store.templateOf(editingStyle, k))}</textarea>
       </div>
 
       <div class="section-label">미리보기</div>
@@ -1995,16 +2809,19 @@ const UI = (() => {
         <button class="btn ghost" id="resetBtn">기본으로</button>
       </div>`;
 
+    tone.bind(view);
+
     const ta = view.querySelector('#tpl');
     const prev = view.querySelector('#tplPrev');
     const sample = Store.postings()[0] || sampleposting();
+    let dirty = false;
 
     const repaint = () => {
       const text = Compose.render(ta.value, sample);
       prev.textContent = text || '(내용이 없습니다)';
     };
 
-    ta.addEventListener('input', repaint);
+    ta.addEventListener('input', () => { dirty = true; repaint(); });
 
     view.querySelectorAll('#tokenChips .chip').forEach(c => {
       c.onclick = () => {
@@ -2013,19 +2830,22 @@ const UI = (() => {
         ta.value = ta.value.slice(0, s) + t + ta.value.slice(e);
         ta.selectionStart = ta.selectionEnd = s + t.length;
         ta.focus();
+        dirty = true;
         repaint();
       };
     });
 
     function save() {
-      Store.setTemplate(k, ta.value);
-      toast('저장했습니다');
+      Store.setTemplate(editingStyle, k, ta.value);
+      dirty = false;
+      toast(`${Tone.label(editingStyle)} 문안을 저장했습니다`);
     }
 
     view.querySelector('#saveBtn').onclick = save;
     view.querySelector('#resetBtn').onclick = () => {
-      if (!confirm('이 종류의 문안을 처음 상태로 되돌립니다.')) return;
-      Store.resetTemplate(k);
+      if (!confirm(`${Tone.label(editingStyle)} 말투의 ${info.label} 문안을 처음 상태로 되돌립니다.`)) return;
+      Store.resetTemplate(editingStyle, k);
+      dirty = false;
       render();
     };
 
@@ -2040,6 +2860,7 @@ const UI = (() => {
       자격: '경력 무관, 초보 환영', 복지: '식사 제공, 4대보험',
       상세: '점심 장사 위주라 저녁이 있는 편입니다.',
       연락처: '010-0000-0000', 마감: '채용 시 마감', 태그: '#수원알바 #주방보조',
+      style: Tone.DEFAULT_STYLE,
     };
   }
 

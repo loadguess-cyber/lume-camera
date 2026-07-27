@@ -41,6 +41,27 @@ const UI = (() => {
     return `${dt.getMonth() + 1}월 ${dt.getDate()}일`;
   }
 
+  /** 말투 고르는 칩 줄. onPick(styleId) 로 알려줍니다. */
+  function styleChips(current, onPick) {
+    const id = 'sc' + Math.random().toString(36).slice(2, 7);
+    const html = `<div class="chips style-chips" id="${id}">
+      ${Tone.list().map(s => `
+        <span class="chip ${s.id === current ? 'on' : ''}" data-s="${s.id}">${esc(s.label)}</span>`).join('')}
+    </div>`;
+    // 그려진 뒤에 붙여야 해서, 붙이는 일은 돌려주는 함수에 맡깁니다.
+    const bind = (root) => {
+      const box = (root || document).querySelector('#' + id);
+      if (!box) return;
+      box.querySelectorAll('.chip').forEach(c => {
+        c.onclick = () => {
+          box.querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === c));
+          onPick(c.dataset.s);
+        };
+      });
+    };
+    return { html, bind };
+  }
+
   function statusPill(s) {
     if (s.status === 'never') return `<span class="badge-pill b-never">미게재</span>`;
     if (s.status === 'due')   return `<span class="badge-pill b-due">올릴 때 · ${when(s.at)}</span>`;
@@ -95,7 +116,8 @@ const UI = (() => {
   }
 
   function paintTabs() {
-    const map = { home: 'home', edit: 'home', cast: 'cast', castPick: 'cast', castRun: 'cast',
+    const map = { home: 'home', edit: 'home', importPaste: 'home',
+                  cast: 'cast', castPick: 'cast', castRun: 'cast',
                   channels: 'channels', templates: 'channels', more: 'more' };
     const active = map[route.name] || 'home';
     const due = Store.todo().filter(t => t.status === 'due').length;
@@ -140,6 +162,9 @@ const UI = (() => {
           <p>공고를 한 번만 쓰면<br>채널 수만큼 문안이 자동으로 만들어집니다.</p>
         </div>
         <button class="btn primary" id="firstBtn">첫 공고 쓰기</button>
+        <div class="btn-row">
+          <button class="btn" id="importBtn">다른 공고 보고 만들기</button>
+        </div>
         <div class="info">
           이 앱은 글을 대신 올려주지 않습니다. 블로그·카페·당근·오픈톡 어디에도
           외부 프로그램이 글을 등록하는 통로가 없기 때문입니다.
@@ -151,6 +176,7 @@ const UI = (() => {
         Store.upsertPosting(p);
         go('edit', p.id);
       };
+      view.querySelector('#importBtn').onclick = () => go('importPaste');
       return;
     }
 
@@ -172,13 +198,19 @@ const UI = (() => {
           <div class="card-sub">${esc(Compose.summary(p))}</div>
           <div class="card-sub" style="margin-top:6px">
             <span class="badge-pill ${posted ? 'b-fresh' : 'b-never'}">${posted}/${chs.length} 채널</span>
+            <span class="badge-pill b-never">${esc(Tone.label(p.style))}</span>
             &nbsp;수정 ${when(p.updatedAt)}
           </div>
         </div>`;
-      }).join('')}`;
+      }).join('')}
+
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn" id="importBtn">다른 공고 보고 만들기</button>
+      </div>`;
 
     const dueCard = view.querySelector('#dueCard');
     if (dueCard) dueCard.onclick = () => tabTo('cast');
+    view.querySelector('#importBtn').onclick = () => go('importPaste');
     view.querySelectorAll('.card[data-id]').forEach(el => {
       el.onclick = () => go('edit', el.dataset.id);
     });
@@ -192,7 +224,19 @@ const UI = (() => {
 
     setTop('공고 쓰기', '완료', () => { flush(); back(); });
 
+    const tone = styleChips(p.style, (s) => {
+      p.style = s;
+      Store.upsertPosting(p);
+      view.querySelector('#toneDesc').textContent = Tone.get(s).desc;
+      toast(Tone.label(s) + ' 말투로 씁니다');
+    });
+
     view.innerHTML = `
+      <div class="section-label">말투</div>
+      ${tone.html}
+      <div class="info" id="toneDesc" style="margin-top:8px">${esc(Tone.get(p.style).desc)}</div>
+
+      <div class="section-label">내용</div>
       ${Store.FIELDS.map(f => `
         <div class="field">
           <label for="f-${f.key}">${esc(f.key)} <span class="hint">${esc(f.hint)}</span></label>
@@ -207,12 +251,14 @@ const UI = (() => {
         <button class="btn primary" id="goCast">이 공고 올리러 가기</button>
       </div>
       <div class="btn-row">
-        <button class="btn" id="previewBtn">채널별 문안 보기</button>
+        <button class="btn" id="previewBtn">문안 미리보기</button>
         <button class="btn" id="dupBtn">복제</button>
       </div>
       <div class="btn-row">
         <button class="btn ghost danger" id="delBtn">이 공고 삭제</button>
       </div>`;
+
+    tone.bind(view);
 
     const inputs = view.querySelectorAll('[data-key]');
     let timer;
@@ -259,19 +305,179 @@ const UI = (() => {
     };
   };
 
-  /** 채널별로 어떤 문안이 나오는지 한 번에 훑어보는 시트 */
+  /**
+   * 채널별로 어떤 문안이 나오는지 훑어보는 시트.
+   * 위쪽 말투 칩을 누르면 그 자리에서 전부 다시 쓰입니다 — 말투를 비교해 보고 고르는 곳입니다.
+   */
   function previewSheet(p) {
     const chs = Store.activeChannels();
-    openSheet('채널별 문안', chs.map(ch => {
-      const text = Compose.forChannel(p, ch);
-      const m = Compose.measure(text, ch);
-      return `
-        <div class="section-label">${esc(ch.name)}</div>
-        <div class="preview" style="max-height:200px">${esc(text) || '<i>내용이 없습니다</i>'}</div>
-        <div class="counter ${m.over ? 'over' : ''}">
-          <span>${m.count}자</span><span>권장 ${m.limit}자</span>
-        </div>`;
-    }).join('') || '<div class="info">켜져 있는 채널이 없습니다.</div>');
+    if (!chs.length) return openSheet('문안 미리보기', '<div class="info">켜져 있는 채널이 없습니다.</div>');
+
+    let shown = p.style;
+    const tone = styleChips(shown, (s) => { shown = s; paint(); });
+
+    openSheet('문안 미리보기', `
+      ${tone.html}
+      <div class="info" id="pvNote" style="margin-top:8px"></div>
+      <div id="pvBody"></div>
+      <div class="btn-row"><button class="btn primary" id="pvUse">이 말투로 정하기</button></div>`,
+      (root) => {
+        tone.bind(root);
+        root.querySelector('#pvUse').onclick = () => {
+          p.style = shown;
+          Store.upsertPosting(p);
+          closeSheet();
+          render();
+          toast(Tone.label(shown) + ' 말투로 정했습니다');
+        };
+        paint();
+      });
+
+    function paint() {
+      const body = sheetBody.querySelector('#pvBody');
+      const note = sheetBody.querySelector('#pvNote');
+      const use  = sheetBody.querySelector('#pvUse');
+      if (!body) return;
+
+      note.textContent = Tone.get(shown).desc;
+      use.textContent = shown === p.style
+        ? `지금 이 말투입니다 — ${Tone.label(shown)}`
+        : `${Tone.label(shown)} 말투로 정하기`;
+      use.disabled = shown === p.style;
+
+      body.innerHTML = chs.map(ch => {
+        const text = Compose.forChannel(p, ch, shown);
+        const m = Compose.measure(text, ch);
+        return `
+          <div class="section-label">${esc(ch.name)}${ch.template ? ' · 이 채널만의 문안' : ''}</div>
+          <div class="preview" style="max-height:200px">${esc(text) || '<i>내용이 없습니다</i>'}</div>
+          <div class="counter ${m.over ? 'over' : ''}">
+            <span>${m.count}자</span><span>권장 ${m.limit}자</span>
+          </div>`;
+      }).join('');
+    }
+  }
+
+  /* ═══════════════ 다른 공고 보고 만들기 ═══════════════ */
+
+  VIEWS.importPaste = () => {
+    setTop('다른 공고 보고 만들기');
+
+    view.innerHTML = `
+      <div class="info">
+        마음에 드는 다른 업체 공고를 통째로 붙여넣으세요.
+        급여·근무시간·근무형태·지역·직무를 뽑아내 <b>내 공고 항목에 채워 넣습니다.</b>
+        그 다음 내가 고른 말투로 다시 쓰이니, 조건만 참고하고 글은 내 것이 됩니다.
+      </div>
+
+      <div class="field">
+        <label>붙여넣기</label>
+        <textarea class="textarea tall" id="src" placeholder="다른 업체 공고를 여기에 붙여넣으세요"></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="readBtn">분석하기</button>
+        <button class="btn" id="pasteBtn">클립보드에서</button>
+      </div>
+
+      <div class="notice" style="background:var(--sunk);color:var(--dim)">
+        상대 업체의 <b>상호와 연락처는 가져오지 않습니다.</b> 그대로 두면 남의 가게로 지원 전화가 갑니다.
+        상대가 쓴 문장도 그대로 옮기지 않습니다 — 베낀 티가 나는 공고는 어차피 반응이 없고, 남의 글입니다.
+      </div>`;
+
+    const src = view.querySelector('#src');
+
+    view.querySelector('#pasteBtn').onclick = async () => {
+      try {
+        const t = await navigator.clipboard.readText();
+        if (!t || !t.trim()) return toast('클립보드가 비어 있습니다');
+        src.value = t;
+        toast('붙여넣었습니다');
+      } catch (e) {
+        toast('클립보드를 읽을 수 없습니다. 길게 눌러 붙여넣어 주세요');
+      }
+    };
+
+    view.querySelector('#readBtn').onclick = () => {
+      const raw = src.value.trim();
+      if (raw.length < 10) return toast('공고 내용을 붙여넣어 주세요');
+      resultSheet(Parse.analyze(raw));
+    };
+  };
+
+  /** 분석 결과를 보여주고, 확인하면 공고로 만듭니다. */
+  function resultSheet(res) {
+    const { fields, theirs, leftover, found, missing } = res;
+    const has = Object.entries(fields).filter(([, v]) => v);
+
+    openSheet('찾아낸 것', `
+      ${has.length ? `
+        <div class="section-label">내 공고에 채울 항목 ${found.length}개</div>
+        ${has.map(([k, v]) => `
+          <div class="row">
+            <div class="body">
+              <div class="meta">${esc(k)}</div>
+              <div class="name" style="white-space:pre-wrap">${esc(v)}</div>
+            </div>
+          </div>`).join('')}
+      ` : `<div class="notice">알아볼 수 있는 항목이 없었습니다.
+             공고 형식이 많이 다르면 못 읽습니다 — 직접 쓰시는 편이 빠릅니다.</div>`}
+
+      ${missing.length ? `
+        <div class="section-label">못 찾은 항목</div>
+        <div class="info">${esc(missing.join(' · '))} — 직접 채워 주세요.</div>` : ''}
+
+      ${(theirs.업체명 || theirs.연락처) ? `
+        <div class="section-label">일부러 안 가져온 것</div>
+        <div class="notice">
+          ${theirs.업체명 ? `상호 <b>${esc(theirs.업체명)}</b><br>` : ''}
+          ${theirs.연락처 ? `연락처 <b>${esc(theirs.연락처)}</b><br>` : ''}
+          상대 업체 것입니다. 내 상호와 내 번호를 직접 넣으세요.
+        </div>` : ''}
+
+      ${leftover.length ? `
+        <div class="section-label">원문에서 남은 문장 ${leftover.length}줄</div>
+        <div class="preview" style="max-height:160px">${esc(leftover.join('\n'))}</div>
+        <label class="pick" id="keepRaw" style="margin-top:8px">
+          <span class="box"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="body">
+            <span class="name">이 문장들도 상세 설명에 넣기</span>
+            <span class="meta">참고용입니다. 그대로 두지 말고 내 말로 고쳐 쓰세요</span>
+          </span>
+        </label>` : ''}
+
+      <div class="section-label">말투</div>
+      <div id="impTone"></div>
+
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn primary" id="makeBtn">이걸로 공고 만들기</button>
+      </div>`,
+      (root) => {
+        let style = Tone.DEFAULT_STYLE;
+        const tone = styleChips(style, (s) => { style = s; });
+        root.querySelector('#impTone').innerHTML = tone.html;
+        tone.bind(root);
+
+        let keep = false;
+        const box = root.querySelector('#keepRaw');
+        if (box) box.onclick = (e) => {
+          e.preventDefault();
+          keep = !keep;
+          box.classList.toggle('on', keep);
+        };
+
+        root.querySelector('#makeBtn').onclick = () => {
+          const p = Store.EMPTY_POSTING();
+          Object.entries(fields).forEach(([k, v]) => { if (v) p[k] = v; });
+          if (keep && leftover.length) p.상세 = leftover.join('\n');
+          p.style = style;
+          Store.upsertPosting(p);
+          closeSheet();
+          stack = [];
+          go('edit', p.id, true);
+          toast('업체명과 연락처를 채워 주세요');
+        };
+      });
   }
 
   /* ═══════════════ 게재 — 공고 고르기 ═══════════════ */
@@ -404,6 +610,15 @@ const UI = (() => {
     const ch = queue.current;
     const kind = Store.KINDS[ch.kind] || Store.KINDS.etc;
     const text = draftText !== null ? draftText : Compose.forChannel(p, ch);
+
+    // 올리려다 말투가 안 맞는다 싶을 때 여기서 바로 바꿉니다. 공고에도 저장됩니다.
+    const runTone = styleChips(p.style, (s) => {
+      p.style = s;
+      Store.upsertPosting(p);
+      draftText = null;       // 손봤던 문안은 버리고 새 말투로 다시 뽑습니다
+      render();
+      toast(Tone.label(s) + ' 말투로 바꿨습니다');
+    });
     const m = Compose.measure(text, ch);
     const total = queue.ids.length;
     const step = queue.index + 1;
@@ -441,6 +656,9 @@ const UI = (() => {
         <button class="btn" id="cardBtn">이미지 카드</button>
       </div>
 
+      <div class="section-label">말투 바꿔보기</div>
+      ${runTone.html}
+
       <div class="btn-row" style="margin-top:20px">
         <button class="btn primary" id="doneBtn">올렸어요 → 다음</button>
       </div>
@@ -455,6 +673,7 @@ const UI = (() => {
       </div>` : ''}`;
 
     const el = (s) => view.querySelector(s);
+    runTone.bind(view);
 
     el('#copyOpen').onclick = async () => {
       const ok = await Publish.copy(text);
@@ -704,14 +923,26 @@ const UI = (() => {
 
   /* ═══════════════ 문안 템플릿 ═══════════════ */
 
+  /** 마지막으로 편집하던 말투 — 화면을 다시 그려도 유지됩니다. */
+  let editingStyle = Tone.DEFAULT_STYLE;
+
   VIEWS.templates = (kind) => {
     const k = Store.KINDS[kind] ? kind : 'etc';
     const info = Store.KINDS[k];
 
     setTop(`${info.label} 문안`, '저장', save);
 
+    const tone = styleChips(editingStyle, (s) => {
+      if (dirty && !confirm('고치던 내용을 버리고 다른 말투로 넘어갈까요?')) { render(); return; }
+      editingStyle = s;
+      render();
+    });
+
     view.innerHTML = `
-      <div class="info">
+      <div class="section-label">어느 말투의 문안을 고칠까요</div>
+      ${tone.html}
+
+      <div class="info" style="margin-top:8px">
         <b>{{항목}}</b> 자리에 공고 내용이 들어갑니다.<br>
         내용이 비어 있는 항목이 들어간 <b>줄은 통째로 사라집니다</b> — 빈칸을 남겨도 문안이 깨지지 않습니다.
       </div>
@@ -719,7 +950,7 @@ const UI = (() => {
         ${Compose.tokens().map(t => `<span class="chip" data-t="${esc(t)}">${esc(t)}</span>`).join('')}
       </div>
       <div class="field" style="margin-top:12px">
-        <textarea class="textarea tall" id="tpl">${esc(Store.templates()[k])}</textarea>
+        <textarea class="textarea tall" id="tpl">${esc(Store.templateOf(editingStyle, k))}</textarea>
       </div>
 
       <div class="section-label">미리보기</div>
@@ -730,16 +961,19 @@ const UI = (() => {
         <button class="btn ghost" id="resetBtn">기본으로</button>
       </div>`;
 
+    tone.bind(view);
+
     const ta = view.querySelector('#tpl');
     const prev = view.querySelector('#tplPrev');
     const sample = Store.postings()[0] || sampleposting();
+    let dirty = false;
 
     const repaint = () => {
       const text = Compose.render(ta.value, sample);
       prev.textContent = text || '(내용이 없습니다)';
     };
 
-    ta.addEventListener('input', repaint);
+    ta.addEventListener('input', () => { dirty = true; repaint(); });
 
     view.querySelectorAll('#tokenChips .chip').forEach(c => {
       c.onclick = () => {
@@ -748,19 +982,22 @@ const UI = (() => {
         ta.value = ta.value.slice(0, s) + t + ta.value.slice(e);
         ta.selectionStart = ta.selectionEnd = s + t.length;
         ta.focus();
+        dirty = true;
         repaint();
       };
     });
 
     function save() {
-      Store.setTemplate(k, ta.value);
-      toast('저장했습니다');
+      Store.setTemplate(editingStyle, k, ta.value);
+      dirty = false;
+      toast(`${Tone.label(editingStyle)} 문안을 저장했습니다`);
     }
 
     view.querySelector('#saveBtn').onclick = save;
     view.querySelector('#resetBtn').onclick = () => {
-      if (!confirm('이 종류의 문안을 처음 상태로 되돌립니다.')) return;
-      Store.resetTemplate(k);
+      if (!confirm(`${Tone.label(editingStyle)} 말투의 ${info.label} 문안을 처음 상태로 되돌립니다.`)) return;
+      Store.resetTemplate(editingStyle, k);
+      dirty = false;
       render();
     };
 
@@ -775,6 +1012,7 @@ const UI = (() => {
       자격: '경력 무관, 초보 환영', 복지: '식사 제공, 4대보험',
       상세: '점심 장사 위주라 저녁이 있는 편입니다.',
       연락처: '010-0000-0000', 마감: '채용 시 마감', 태그: '#수원알바 #주방보조',
+      style: Tone.DEFAULT_STYLE,
     };
   }
 
