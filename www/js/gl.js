@@ -41,6 +41,7 @@
     'uniform float uTime;',
     'uniform float uHasCurve;',
     'uniform float uHasLocal;',
+    'uniform float uLetterbox;',   // 1 = 사진 바깥을 검게 칠한다 (contain)
     'uniform float uMono;',
     'uniform vec3  uAWB;',     // 자동 화이트밸런스 채널 게인 (기본 1,1,1 = 보정 없음)
     'uniform vec4  uWB;',      // temp, tint, exposure(EV), contrast
@@ -86,6 +87,13 @@
     '}',
     '',
     'void main(){',
+    '  /* contain 으로 그릴 때 사진이 닿지 않는 자리 — 가장자리 픽셀이 늘어나 보이지',
+    '     않도록 검게 둡니다 (cover 로 그릴 때는 vUV 가 0~1 을 벗어나지 않습니다) */',
+    '  if (uLetterbox > 0.5 &&',
+    '      (vUV.x < 0.0 || vUV.x > 1.0 || vUV.y < 0.0 || vUV.y > 1.0)) {',
+    '    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);',
+    '    return;',
+    '  }',
     '  vec3 raw = texture2D(uTex, vUV).rgb;',
     '',
     '  /* 0. 자동 화이트밸런스 — 선형 공간에서 채널 게인.',
@@ -341,8 +349,9 @@
 
     /* 유니폼 위치 캐시 */
     var names = ['uTex', 'uCurve', 'uTexel', 'uAmount', 'uTime', 'uHasCurve', 'uHasLocal',
-      'uMono', 'uAWB', 'uWB', 'uTone', 'uLocal', 'uSatV', 'uGSh', 'uGMid', 'uGHi', 'uGGl',
-      'uGLum', 'uGMix', 'uVig', 'uGrainP', 'uFadeSh', 'uScale', 'uOffset', 'uFlipX'];
+      'uLetterbox', 'uMono', 'uAWB', 'uWB', 'uTone', 'uLocal', 'uSatV', 'uGSh', 'uGMid',
+      'uGHi', 'uGGl', 'uGLum', 'uGMix', 'uVig', 'uGrainP', 'uFadeSh', 'uScale', 'uOffset',
+      'uFlipX'];
     this.u = {};
     for (var i = 0; i < names.length; i++) this.u[names[i]] = gl.getUniformLocation(prog, names[i]);
     this.uHSL = gl.getUniformLocation(prog, 'uHSL[0]');
@@ -491,14 +500,21 @@
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.curveTex);
 
-    /* object-fit: cover */
+    /* object-fit: cover(기본) · contain(opts.contain)
+       uScale 은 "화면 좌표 → 텍스처 좌표" 배율입니다.
+         1 보다 작으면 텍스처의 일부만 훑어 잘라내고(cover),
+         1 보다 크면 텍스처 바깥까지 훑어 여백이 생깁니다(contain). */
     var srcAspect = sw / sh, dstAspect = cw / ch;
+    var wide = srcAspect > dstAspect;      /* 사진이 화면보다 옆으로 넓다 */
     var sx = 1, sy = 1;
-    if (srcAspect > dstAspect) sx = dstAspect / srcAspect;
-    else sy = srcAspect / dstAspect;
     if (opts.contain) {
-      sx = 1 / sx; sy = 1 / sy;   /* 사용하지 않음 — 예약 */
+      if (wide) sy = srcAspect / dstAspect;   /* 위아래에 여백 */
+      else      sx = dstAspect / srcAspect;   /* 좌우에 여백 */
+    } else {
+      if (wide) sx = dstAspect / srcAspect;   /* 좌우를 잘라냄 */
+      else      sy = srcAspect / dstAspect;   /* 위아래를 잘라냄 */
     }
+    gl.uniform1f(this.u.uLetterbox, opts.contain ? 1 : 0);
     gl.uniform2f(this.u.uScale, sx, sy);
     gl.uniform2f(this.u.uOffset, 0, 0);
     gl.uniform1f(this.u.uFlipX, opts.mirror ? 1 : 0);
@@ -529,13 +545,14 @@
     return offscreen;
   }
 
-  /* 소스를 프리셋 적용해 캔버스로 렌더 (촬영/썸네일) */
-  function renderTo(src, preset, amount, w, h, mirror) {
+  /* 소스를 프리셋 적용해 캔버스로 렌더 (촬영/썸네일)
+     contain 을 주면 잘라내는 대신 사진 전체를 넣고 남는 자리를 검게 둡니다 */
+  function renderTo(src, preset, amount, w, h, mirror, contain) {
     var r = getOffscreen();
     if (!r.ok) return null;
     r.setSize(w, h);
     r.setPreset(preset, amount);
-    if (!r.draw(src, { mirror: mirror, freezeGrain: true })) return null;
+    if (!r.draw(src, { mirror: mirror, freezeGrain: true, contain: !!contain })) return null;
     return r.canvas;
   }
 
