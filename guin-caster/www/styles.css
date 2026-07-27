@@ -23,8 +23,12 @@
   --safe-t:  env(safe-area-inset-top, 0px);
 }
 
+/* 어두운 테마.
+ * 기기 설정을 따르되, 보는 사람이 직접 고른 쪽이 언제나 이깁니다.
+ * — 기기가 어두워도 [밝게]로 고정했으면 :not() 이 걸러냅니다.
+ * — 기기가 밝아도 [어둡게]로 고정했으면 아래 블록이 덮어씁니다.        */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg:      #0E1013;
     --surface: #171A1F;
     --sunk:    #1F2329;
@@ -39,6 +43,22 @@
     --warn-soft:   #2A1F16;
     --danger:  #F07167;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg:      #0E1013;
+  --surface: #171A1F;
+  --sunk:    #1F2329;
+  --line:    #2A2F37;
+  --fg:      #F1F3F5;
+  --dim:     #9BA3AE;
+  --faint:   #6B7280;
+  --accent:  #6FCF97;
+  --accent-soft: #16281E;
+  --on-accent: #0E1013;
+  --warn:    #E8A87C;
+  --warn-soft:   #2A1F16;
+  --danger:  #F07167;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

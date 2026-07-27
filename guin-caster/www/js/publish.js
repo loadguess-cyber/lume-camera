@@ -70,17 +70,30 @@ const Publish = (() => {
   /** 카카오톡 앱 자체를 띄우는 주소. 특정 방까지는 못 갑니다 — 방 선택은 사람이 합니다. */
   const KAKAO_SCHEME = 'kakaotalk://';
 
+  /** 새 탭으로 띄웁니다. 팝업이 막히는 곳(웹뷰·iframe)에서는 링크 클릭으로 우회합니다. */
+  function openUrl(url) {
+    let w = null;
+    try { w = window.open(url, '_blank', 'noopener'); } catch (e) { w = null; }
+    if (w) return true;
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return true;
+  }
+
   function open(channel) {
     const url = (channel.url || '').trim();
 
-    if (url) {
-      window.open(url, '_blank', 'noopener');
-      return true;
-    }
+    if (url) return openUrl(url);
 
     // 주소를 안 적어둔 오픈톡·단톡 채널이면 카카오톡을 띄웁니다.
     if (channel.kind === 'openchat') {
-      location.href = KAKAO_SCHEME;
+      try { location.href = KAKAO_SCHEME; } catch (e) { return openUrl(KAKAO_SCHEME); }
       return true;
     }
 

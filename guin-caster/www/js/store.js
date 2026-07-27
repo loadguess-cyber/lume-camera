@@ -169,12 +169,20 @@ const Store = (() => {
     }
   }
 
+  let warnedAboutSaving = false;
+
   function save() {
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
     } catch (e) {
-      // 용량이 찼을 때 — 조용히 죽는 것보다 알려주는 편이 낫습니다.
-      alert('저장 공간이 가득 찼습니다. 오래된 공고를 지우거나 내보내기 후 정리해 주세요.');
+      // 저장이 막힌 상황(용량 초과·사생활 보호 모드 등).
+      // 조용히 죽는 것보다 알려주는 편이 낫지만, 한 번만 알립니다.
+      if (!warnedAboutSaving) {
+        warnedAboutSaving = true;
+        alert('이 기기에 저장할 수 없습니다.\n' +
+              '저장 공간이 찼거나 브라우저가 저장을 막고 있습니다. ' +
+              '지금 쓰신 내용은 창을 닫으면 사라집니다.');
+      }
     }
   }
 
