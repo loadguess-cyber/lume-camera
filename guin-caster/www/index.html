@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111317">
+<title>구인 캐스터</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header id="topbar">
+  <button id="backBtn" class="icon-btn hidden" aria-label="뒤로">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <h1 id="topTitle">공고</h1>
+  <button id="topAction" class="txt-btn hidden"></button>
+</header>
+
+<main id="view" tabindex="-1"></main>
+
+<nav id="tabbar">
+  <button class="tab" data-tab="home">
+    <svg viewBox="0 0 24 24" width="21" height="21"><path d="M5 4h11l3 3v13H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 10h8M8 14h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    <span>공고</span>
+  </button>
+  <button class="tab" data-tab="cast">
+    <svg viewBox="0 0 24 24" width="21" height="21"><path d="M4 12h5l3-6 3 12 2-6h3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>게재</span>
+  </button>
+  <button class="tab" data-tab="channels">
+    <svg viewBox="0 0 24 24" width="21" height="21"><circle cx="12" cy="6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="6" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 8.4v3.6M12 12H6.8l-.5 3.3M12 12h5.2l.5 3.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    <span>채널</span>
+  </button>
+  <button class="tab" data-tab="more">
+    <svg viewBox="0 0 24 24" width="21" height="21"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    <span>설정</span>
+  </button>
+</nav>
+
+<div id="sheet" class="hidden" role="dialog" aria-modal="true">
+  <div id="sheetScrim"></div>
+  <div id="sheetPanel">
+    <div id="sheetHead">
+      <div id="sheetGrip"></div>
+      <button id="sheetClose" class="icon-btn" aria-label="닫기">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/store.js"></script>
+<script src="js/compose.js"></script>
+<script src="js/publish.js"></script>
+<script src="js/card.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

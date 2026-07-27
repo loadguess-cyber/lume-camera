@@ -1,0 +1,17 @@
+{
+  "name": "구인 캐스터",
+  "short_name": "구인캐스터",
+  "description": "공고 한 번 쓰면 채널별 문안으로 바꿔주고, 게재와 끌어올리기를 관리합니다.",
+  "lang": "ko",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111317",
+  "theme_color": "#111317",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

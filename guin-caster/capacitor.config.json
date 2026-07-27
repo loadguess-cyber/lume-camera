@@ -1,0 +1,13 @@
+{
+  "appId": "com.iroir.guincaster",
+  "appName": "구인 캐스터",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false,
+    "backgroundColor": "#111317"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
