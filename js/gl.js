@@ -58,6 +58,12 @@
     'uniform vec3  uVig;',     // amount, midpoint, feather
     'uniform vec2  uGrainP;',  // amount, size
     'uniform vec2  uFadeSh;',  // fade, sharpen
+    'uniform float uMistMode;',
+    'uniform float uMistStrength;',
+    'uniform float uCrossRays;',
+    'uniform vec3  uColorFilter;',
+    'uniform float uColorAmount;',
+    'uniform float uNdMultiplier;',
     '',
     'const vec3 LW = vec3(0.2126, 0.7152, 0.0722);',
     'float luma(vec3 c){ return dot(c, LW); }',
@@ -186,7 +192,52 @@
     '  float vg = smoothstep(uVig.y, min(uVig.y + max(uVig.z, 0.05), 1.45), rr);',
     '  c *= 1.0 + uVig.x * vg;',
     '',
-    '  /* 12. 그레인 */',
+    '  /* 12. LUME 디지털 렌즈 효과 */',
+    '  if (uMistMode > 0.5 && uMistMode < 2.5) {',
+    '    vec2 mr = uTexel * mix(9.0, 18.0, uMistStrength);',
+    '    vec3 glow = blurAt(vUV, mr);',
+    '    float bright = smoothstep(0.54, 0.94, luma(glow));',
+    '    if (uMistMode < 1.5) {',
+    '      c += glow * bright * uMistStrength * 0.42;',
+    '      c = mix(c, c * 0.94, uMistStrength * 0.10);',
+    '    } else {',
+    '      c += glow * (0.18 + bright * 0.48) * uMistStrength;',
+    '      c = mix(c, vec3(luma(c)), uMistStrength * 0.08);',
+    '      c = c * (1.0 - uMistStrength * 0.12) + uMistStrength * 0.055;',
+    '    }',
+    '  }',
+    '  if (uMistMode > 2.5) {',
+    '    vec3 star = vec3(0.0);',
+    '    for (int j = 1; j <= 5; j++) {',
+    '      float fj = float(j);',
+    '      vec2 d = uTexel * fj * 5.0;',
+    '      star += texture2D(uTex, vUV + vec2(d.x, 0.0)).rgb;',
+    '      star += texture2D(uTex, vUV - vec2(d.x, 0.0)).rgb;',
+    '      star += texture2D(uTex, vUV + vec2(0.0, d.y)).rgb;',
+    '      star += texture2D(uTex, vUV - vec2(0.0, d.y)).rgb;',
+    '      if (uCrossRays > 4.5) {',
+    '        star += texture2D(uTex, vUV + d).rgb;',
+    '        star += texture2D(uTex, vUV - d).rgb;',
+    '      }',
+    '      if (uCrossRays > 6.5) {',
+    '        star += texture2D(uTex, vUV + vec2(d.x, -d.y)).rgb;',
+    '        star += texture2D(uTex, vUV + vec2(-d.x, d.y)).rgb;',
+    '      }',
+    '    }',
+    '    star /= max(uCrossRays * 1.25, 5.0);',
+    '    float starMask = smoothstep(0.72, 0.98, luma(star));',
+    '    c += star * starMask * uMistStrength * 0.85;',
+    '  }',
+    '  if (uColorAmount > 0.001) {',
+    '    float keepLum = max(luma(uColorFilter), 0.05);',
+    '    vec3 tinted = c * (uColorFilter / keepLum) * 0.72;',
+    '    tinted *= luma(c) / max(luma(tinted), 0.01);',
+    '    float colorMask = smoothstep(0.025, 0.24, luma(c));',
+    '    c = mix(c, tinted, uColorAmount * 0.32 * colorMask);',
+    '  }',
+    '  c *= uNdMultiplier;',
+    '',
+    '  /* 13. 그레인 */',
     '  if (uGrainP.x > 0.001) {',
     '    vec2 gp = floor((vUV / max(uTexel, vec2(1e-6))) / max(uGrainP.y, 0.5));',
     '    float n = fract(sin(dot(gp, vec2(12.9898, 78.233)) + uTime) * 43758.5453);',
@@ -332,7 +383,9 @@
     /* 유니폼 위치 캐시 */
     var names = ['uTex', 'uCurve', 'uTexel', 'uAmount', 'uTime', 'uHasCurve', 'uHasLocal',
       'uMono', 'uWB', 'uTone', 'uLocal', 'uSatV', 'uGSh', 'uGMid', 'uGHi', 'uGGl',
-      'uGLum', 'uGMix', 'uVig', 'uGrainP', 'uFadeSh', 'uScale', 'uOffset', 'uFlipX'];
+      'uGLum', 'uGMix', 'uVig', 'uGrainP', 'uFadeSh', 'uScale', 'uOffset', 'uFlipX',
+      'uMistMode', 'uMistStrength', 'uCrossRays', 'uColorFilter', 'uColorAmount',
+      'uNdMultiplier'];
     this.u = {};
     for (var i = 0; i < names.length; i++) this.u[names[i]] = gl.getUniformLocation(prog, names[i]);
     this.uHSL = gl.getUniformLocation(prog, 'uHSL[0]');
@@ -392,7 +445,10 @@
   GLRenderer.prototype.setPreset = function (preset, amount) {
     if (!this.ok) return;
     var gl = this.gl, u = this.u;
-    var p = this.preset = XMP.normalize(preset || XMP.neutral());
+    var rawPreset = preset || XMP.neutral();
+    var lume = LumeEffects.normalize(preset && preset.lume);
+    var p = this.preset = XMP.normalize(rawPreset);
+    p.lume = lume;
     this.amount = amount === undefined ? this.amount : amount;
 
     gl.useProgram(this.prog);
@@ -424,6 +480,22 @@
     gl.uniform2f(u.uGrainP, f.grain / 100, 0.7 + f.grainSize / 100 * 2.6);
     gl.uniform2f(u.uFadeSh, f.fade / 100, f.sharpen / 100);
     gl.uniform1f(u.uMono, f.monochrome ? 1 : 0);
+
+    var optical = lume.optical;
+    var mistMode = !optical ? 0 : optical.type === 'blackMist' ? 1 :
+      optical.type === 'whiteMist' ? 2 : 3;
+    var gradeStrength = !optical ? 0 :
+      optical.grade === '1/8' ? 0.18 : optical.grade === '1/4' ? 0.34 :
+      optical.grade === '1/2' ? 0.56 : 0.48;
+    var rays = !optical || optical.type !== 'cross' ? 0 : parseInt(optical.grade, 10);
+    var color = lume.color;
+    var colorRgb = LumeEffects.colorRgb(color && color.id);
+    gl.uniform1f(u.uMistMode, mistMode);
+    gl.uniform1f(u.uMistStrength, gradeStrength * (optical ? optical.amount : 0));
+    gl.uniform1f(u.uCrossRays, rays);
+    gl.uniform3f(u.uColorFilter, colorRgb[0], colorRgb[1], colorRgb[2]);
+    gl.uniform1f(u.uColorAmount, color ? color.amount : 0);
+    gl.uniform1f(u.uNdMultiplier, LumeEffects.ndMultiplier(lume.digitalNdStops));
 
     var hasLocal = !!(b.texture || b.clarity || b.dehaze || f.sharpen);
     gl.uniform1f(u.uHasLocal, hasLocal ? 1 : 0);
