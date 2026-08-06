@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0A09">
+<title>LUME Studio — 라이트룸 프리셋을 내 사진에</title>
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="studio.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="wordmark">LUME</span>
+    <span class="sub">STUDIO</span>
+  </div>
+
+  <div class="counts" id="counts" hidden>
+    <span id="cntPhotos">0장</span>
+    <span class="dot">·</span>
+    <span id="cntSel">0장 선택</span>
+  </div>
+
+  <div class="tools">
+    <button class="btn" id="bAdd">사진 추가</button>
+    <button class="btn" id="bXmp">.xmp 불러오기</button>
+    <button class="btn key" id="bExport" disabled>내보내기</button>
+  </div>
+</header>
+
+<!-- ═══════════ 시작 화면 ═══════════ -->
+<section id="start">
+  <div class="hero">
+    <h1>라이트룸 프리셋을<br>구독 없이, 내 사진에.</h1>
+    <p class="lede">
+      가진 <code>.xmp</code> 프리셋을 그대로 읽어 사진에 입힙니다.
+      한 장씩 보정하는 대신, 프리셋을 고르고 <b>전체에 한 번에</b> 적용해
+      묶음으로 내려받으세요.
+    </p>
+    <div class="cta">
+      <button class="btn key big" id="bAdd2">사진 열기</button>
+      <button class="btn big" id="bSample">샘플로 둘러보기</button>
+    </div>
+    <p class="fine">사진은 브라우저 안에서만 처리되며 서버로 올라가지 않습니다.</p>
+  </div>
+
+  <ul class="points">
+    <li><b>내 사진으로 미리보기</b><span>프리셋 하나하나가 내 사진에서 어떻게 보이는지 격자로 한눈에 비교합니다.</span></li>
+    <li><b>한 번에 일괄 적용</b><span>수십 장에 같은 프리셋을 걸고 ZIP 하나로 내려받습니다.</span></li>
+    <li><b>원본 그대로 보관</b><span>원본은 건드리지 않습니다. 강도만 바꿔가며 몇 번이든 다시 뽑을 수 있습니다.</span></li>
+  </ul>
+</section>
+
+<!-- ═══════════ 작업 화면 ═══════════ -->
+<main id="work" hidden>
+
+  <!-- 가져온 사진들 -->
+  <aside id="tray">
+    <div class="tray-head">
+      <span>사진</span>
+      <button class="mini" id="bSelAll">전체 선택</button>
+    </div>
+    <div id="trayList"></div>
+  </aside>
+
+  <!-- 미리보기 -->
+  <section id="stage">
+    <div id="viewWrap">
+      <canvas id="view"></canvas>
+      <div class="tag" id="tag">원본</div>
+      <button class="chip" id="bCompare">누르는 동안 원본</button>
+      <div id="scope" hidden><canvas id="hist" width="256" height="64"></canvas></div>
+    </div>
+    <div class="stage-foot">
+      <button class="mini" id="bScope">히스토그램</button>
+      <button class="mini" id="bGridView">프리셋 격자 비교</button>
+      <span class="grow"></span>
+      <span class="meta" id="meta"></span>
+    </div>
+  </section>
+
+  <!-- 프리셋 · 조절 -->
+  <aside id="side">
+    <div class="side-head">
+      <span>프리셋</span>
+      <button class="mini" id="bApplyAll">선택한 사진에 적용</button>
+    </div>
+    <div id="presetList"></div>
+
+    <div class="strength">
+      <label for="amt">강도</label>
+      <input type="range" id="amt" min="0" max="100" value="100" aria-label="프리셋 강도">
+      <output id="amtv">100%</output>
+    </div>
+  </aside>
+</main>
+
+<!-- ═══════════ 프리셋 격자 ═══════════ -->
+<div id="gridOv" class="ov" hidden>
+  <div class="ov-head">
+    <b>프리셋 비교</b>
+    <span class="grow"></span>
+    <button class="btn" id="bGridClose">닫기</button>
+  </div>
+  <div id="gridBody"></div>
+</div>
+
+<!-- ═══════════ 내보내기 ═══════════ -->
+<div id="expOv" class="ov" hidden>
+  <div class="ov-head">
+    <b>내보내기</b>
+    <span class="grow"></span>
+    <button class="btn" id="bExpClose">닫기</button>
+  </div>
+  <div class="ov-body">
+    <div class="field">
+      <label>대상</label>
+      <div class="seg" id="expWho">
+        <button data-v="sel" class="on">선택한 사진</button>
+        <button data-v="all">전체</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>형식</label>
+      <div class="seg" id="expFmt">
+        <button data-v="image/jpeg" class="on">JPEG</button>
+        <button data-v="image/png">PNG (무손실)</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>긴 변</label>
+      <div class="seg" id="expSize">
+        <button data-v="0" class="on">원본</button>
+        <button data-v="3000">3000px</button>
+        <button data-v="2048">2048px</button>
+        <button data-v="1080">1080px</button>
+      </div>
+    </div>
+    <div class="field" id="expQWrap">
+      <label>화질 <output id="expQv">92</output></label>
+      <input type="range" id="expQ" min="60" max="100" value="92">
+    </div>
+
+    <button class="btn key wide" id="bRun">내보내기 시작</button>
+    <div id="expLog" class="log"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<input type="file" id="fPhoto" accept="image/*" multiple hidden>
+<input type="file" id="fXmp" accept=".xmp,application/xml,text/xml" multiple hidden>
+
+<script src="js/xmp.js"></script>
+<script src="js/gl.js"></script>
+<script src="js/presets.js"></script>
+<script src="js/analyze.js"></script>
+<script src="js/sample.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/studio.js"></script>
+</body>
+</html>
