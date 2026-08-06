@@ -28,8 +28,17 @@
     hslMode: 'hue',
     gradeZone: 'mid',
     libTab: 'mine',
+    railMode: 'look',
+    liveLume: { optical: null, color: null, digitalNdStops: 0 },
     lastShot: null      // {url,type,blob,name}
   };
+
+  function normalizePreset(p) {
+    var out = XMP.normalize(p);
+    out.lume = LumeEffects.normalize(p && p.lume);
+    if (p && p.xmpOriginal) out.xmpOriginal = p.xmpOriginal;
+    return out;
+  }
 
   /* 편집기를 아직 열지 않았을 때 슬라이더가 읽을 빈 프리셋 */
   var EDIT_FALLBACK = null;
@@ -50,7 +59,13 @@
     return S.currentId ? findPreset(S.currentId) : null;
   }
   function activePreset() {
-    return S.editing || currentPreset() || XMP.neutral();
+    if (S.editing) {
+      S.editing.lume = LumeEffects.normalize(S.editing.lume || S.liveLume);
+      return S.editing;
+    }
+    var out = normalizePreset(currentPreset() || XMP.neutral());
+    out.lume = LumeEffects.normalize(S.liveLume);
+    return out;
   }
   function activeAmount() {
     return S.editing ? 1 : (S.currentId ? S.amount : 0);
@@ -67,7 +82,10 @@
   }
   function persist() {
     Store.savePresets(userPresets());
-    Store.saveState({ currentId: S.currentId, amount: S.amount, mode: S.mode });
+    Store.saveState({
+      currentId: S.currentId, amount: S.amount, mode: S.mode,
+      railMode: S.railMode, liveLume: LumeEffects.normalize(S.liveLume)
+    });
   }
 
   /* ══════════════ 공용 다이얼로그 ══════════════ */
@@ -163,6 +181,27 @@
     rail.innerHTML = '';
     railCanvases = [];
 
+    $$('.look-mode').forEach(function (button) {
+      button.classList.toggle('on', button.dataset.rail === S.railMode);
+    });
+    if (S.railMode === 'lens') buildLensRail(rail);
+    else if (S.railMode === 'nd') buildNdRail(rail);
+    else buildLookRail(rail);
+    buildActiveEffects();
+  }
+
+  function effectCard(label, className, selected, onClick, swatch) {
+    var card = el('button', 'pcard' + (selected ? ' on' : ''));
+    var chip = el('span', 'pchip effect-preview ' + (className || ''));
+    if (swatch) chip.style.background = swatch;
+    chip.textContent = label.length <= 3 ? label : '';
+    card.appendChild(chip);
+    card.appendChild(el('span', 'pname', label));
+    card.addEventListener('click', onClick);
+    return card;
+  }
+
+  function buildLookRail(rail) {
     var list = [{ id: null, name: '원본' }].concat(S.presets);
     list.forEach(function (p) {
       var card = el('div', 'pcard' + (p.id === S.currentId ? ' on' : ''));
@@ -187,8 +226,82 @@
     refreshThumbs();
   }
 
+  function buildLensRail(rail) {
+    var lume = LumeEffects.normalize(S.liveLume);
+    LumeEffects.OPTICAL_OPTIONS.forEach(function (option) {
+      var optical = lume.optical;
+      var selected = !option.type ? !optical :
+        !!optical && optical.type === option.type && optical.grade === option.grade;
+      var cls = !option.type ? '' : option.type === 'blackMist' ? 'mist-black' :
+        option.type === 'whiteMist' ? 'mist-white' : 'cross';
+      rail.appendChild(effectCard(option.label, cls, selected, function () {
+        S.liveLume.optical = option.type ?
+          { type: option.type, grade: option.grade, amount: 1 } : null;
+        effectChanged();
+      }, null));
+    });
+    LumeEffects.COLOR_OPTIONS.forEach(function (option) {
+      var selected = !!lume.color && lume.color.id === option.id;
+      var rgb = option.rgb.map(function (x) { return Math.round(x * 255); }).join(',');
+      rail.appendChild(effectCard(option.label, '', selected, function () {
+        S.liveLume.color = selected ? null : { id: option.id, amount: 1 };
+        effectChanged();
+      }, 'linear-gradient(135deg,rgba(' + rgb + ',.95),#16181c)'));
+    });
+  }
+
+  function buildNdRail(rail) {
+    var active = LumeEffects.normalize(S.liveLume).digitalNdStops;
+    [
+      { label: '끄기', stops: 0 }, { label: 'ND2', stops: 1 },
+      { label: 'ND4', stops: 2 }, { label: 'ND8', stops: 3 },
+      { label: 'ND16', stops: 4 }
+    ].forEach(function (option) {
+      rail.appendChild(effectCard(option.label, 'nd', active === option.stops, function () {
+        S.liveLume.digitalNdStops = option.stops;
+        effectChanged();
+      }, null));
+    });
+    rail.appendChild(el('div', 'effect-note', '창작용 디지털 효과이며 광학 ND가 아닙니다'));
+  }
+
+  function effectChanged() {
+    S.liveLume = LumeEffects.normalize(S.liveLume);
+    Store.haptic(8);
+    applyToRenderer();
+    persist();
+    buildRail();
+  }
+
+  function buildActiveEffects() {
+    var host = $('#activeEffects');
+    host.innerHTML = '';
+    var lume = LumeEffects.normalize(S.liveLume);
+    if (lume.optical) addEffectChip(host,
+      (lume.optical.type === 'blackMist' ? 'Black Mist ' :
+       lume.optical.type === 'whiteMist' ? 'White Mist ' : 'Cross ') + lume.optical.grade,
+      'optical');
+    if (lume.color) addEffectChip(host, lume.color.id.toUpperCase(), 'color');
+    if (lume.digitalNdStops) addEffectChip(host, 'ND' + Math.pow(2, lume.digitalNdStops), 'nd');
+  }
+
+  function addEffectChip(host, label, kind) {
+    var chip = el('button', 'effect-chip', label + ' ×');
+    chip.addEventListener('click', function () { removeEffect(kind); });
+    host.appendChild(chip);
+  }
+
+  function removeEffect(kind) {
+    if (kind === 'optical') S.liveLume.optical = null;
+    if (kind === 'color') S.liveLume.color = null;
+    if (kind === 'nd') S.liveLume.digitalNdStops = 0;
+    effectChanged();
+  }
+
   function selectPreset(id) {
     S.currentId = id;
+    var selected = id ? findPreset(id) : null;
+    S.liveLume = LumeEffects.normalize(selected && selected.lume);
     Store.haptic(8);
     $$('#presetRail .pcard').forEach(function (c) {
       c.classList.toggle('on', (c.dataset.id || null) === (id || null));
@@ -196,6 +309,37 @@
     $('#intensityWrap').classList.toggle('hidden', !id);
     applyToRenderer();
     persist();
+    buildActiveEffects();
+  }
+
+  function saveCurrentCombo() {
+    askText('새 프리셋 이름', '', '예: 나의 청량 미스트').then(function (name) {
+      if (!name) return;
+      var p = normalizePreset(currentPreset() || XMP.neutral());
+      p.id = 'user_' + Date.now().toString(36);
+      p.name = name;
+      p.source = 'user';
+      p.author = '나';
+      p.created = new Date().toISOString();
+      p.lume = LumeEffects.normalize(S.liveLume);
+      S.presets.push(p);
+      S.currentId = p.id;
+      persist();
+      buildRail();
+      Store.toast('나만의 룩으로 저장했습니다');
+    });
+  }
+
+  function openAddPreset() {
+    actionSheet('프리셋 추가', [
+      { id: 'xmp', label: 'XMP 파일 가져오기' },
+      { id: 'save', label: '현재 룩을 새 프리셋으로 저장' },
+      { id: 'blank', label: '처음부터 새 프리셋 만들기' }
+    ]).then(function (choice) {
+      if (choice === 'xmp') $('#fileXmp').click();
+      if (choice === 'save') saveCurrentCombo();
+      if (choice === 'blank') openEditor(null);
+    });
   }
 
   /* 미리보기 프레임으로 칩 썸네일 갱신 */
@@ -406,8 +550,9 @@
       askConfirm('모든 값을 초기화할까요?', '초기화', true).then(function (ok) {
         if (!ok) return;
         var name = S.editing.name, id = S.editing.id, src = S.editing.source;
-        S.editing = XMP.neutral();
+        S.editing = normalizePreset(XMP.neutral());
         S.editing.name = name; S.editing.id = id; S.editing.source = src;
+        S.editing.lume = LumeEffects.normalize(S.liveLume);
         syncEditor(); liveUpdate(); onEdit();
       });
     });
@@ -416,7 +561,8 @@
 
   function openEditor(preset) {
     var base = preset || currentPreset() || XMP.neutral();
-    S.editing = XMP.normalize(JSON.parse(JSON.stringify(base)));
+    S.editing = normalizePreset(JSON.parse(JSON.stringify(base)));
+    S.editing.lume = LumeEffects.normalize(base.lume || S.liveLume);
     if (!preset && !S.currentId) S.editing.name = '새 프리셋';
     S.editBase = JSON.stringify(S.editing);
     $('#edName').textContent = S.editing.name;
@@ -461,17 +607,18 @@
     var doSave = function (name) {
       p.name = name;
       if (asNew || !p.id || p.source === 'builtin') {
-        p = XMP.normalize(JSON.parse(JSON.stringify(p)));
+        p = normalizePreset(JSON.parse(JSON.stringify(p)));
         p.id = Store.uid();
         p.source = p.source === 'builtin' ? 'app' : (p.source || 'app');
         p.created = Date.now();
         S.presets.push(p);
       } else {
         for (var i = 0; i < S.presets.length; i++) {
-          if (S.presets[i].id === p.id) { S.presets[i] = XMP.normalize(JSON.parse(JSON.stringify(p))); break; }
+          if (S.presets[i].id === p.id) { S.presets[i] = normalizePreset(JSON.parse(JSON.stringify(p))); break; }
         }
       }
       S.currentId = p.id;
+      S.liveLume = LumeEffects.normalize(p.lume);
       S.amount = 1;
       $('#intensity').value = 100; $('#intensityVal').textContent = '100';
       persist();
@@ -817,7 +964,7 @@
       if (x === 'apply') { selectPreset(p.id); buildLibrary(); }
       else if (x === 'edit') { closeSheet('screen-library'); openEditor(p); }
       else if (x === 'dup') {
-        var c = XMP.normalize(JSON.parse(JSON.stringify(p)));
+        var c = normalizePreset(JSON.parse(JSON.stringify(p)));
         c.id = Store.uid(); c.name = p.name + ' 사본'; c.source = 'app'; c.created = Date.now();
         S.presets.push(c); persist(); buildRail(); buildLibrary();
         Store.toast('복제했습니다');
@@ -849,7 +996,9 @@
         fr.onload = function () {
           try {
             var name = f.name.replace(/\.xmp$/i, '');
-            var p = XMP.parse(String(fr.result), name);
+            var p = normalizePreset(XMP.parse(String(fr.result), name));
+            p.xmpOriginal = String(fr.result);
+            p.lume = LumeEffects.normalize(p.lume);
             p.id = Store.uid();
             p.created = Date.now();
             S.presets.push(p);
@@ -1151,6 +1300,14 @@
       buildSettings(); openSheet('screen-settings');
     });
     $('#btnEdit').addEventListener('click', function () { openEditor(null); });
+    $$('.look-mode').forEach(function (button) {
+      button.addEventListener('click', function () {
+        S.railMode = button.dataset.rail;
+        buildRail();
+        persist();
+      });
+    });
+    $('#addPreset').addEventListener('click', openAddPreset);
 
     var intensity = $('#intensity');
     intensity.addEventListener('input', function () {
@@ -1256,7 +1413,7 @@
   /* ══════════════ 부팅 ══════════════ */
   function boot() {
     /* 프리셋 로드 */
-    var user = Store.loadPresets().map(function (p) { return XMP.normalize(p); });
+    var user = Store.loadPresets().map(normalizePreset);
     S.presets = BUILTIN_PRESETS.concat(user);
 
     var st = Store.loadState();
@@ -1265,7 +1422,12 @@
     S.grid = !!s.grid;
     S.mode = st.mode || 'photo';
     S.amount = typeof st.amount === 'number' ? st.amount : 1;
+    S.railMode = /^(look|lens|nd)$/.test(st.railMode) ? st.railMode : 'look';
+    S.liveLume = LumeEffects.normalize(st.liveLume);
     if (st.currentId && findPreset(st.currentId)) S.currentId = st.currentId;
+    if (S.currentId && !st.liveLume) {
+      S.liveLume = LumeEffects.normalize(findPreset(S.currentId).lume);
+    }
 
     $('#btnRatio').textContent = S.ratio;
     $('#grid').classList.toggle('grid-off', !S.grid);
