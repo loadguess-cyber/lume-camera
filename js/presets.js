@@ -173,5 +173,52 @@
     })
   ];
 
-  global.BUILTIN_PRESETS = BUILTIN.map(function (p) { return XMP.normalize(p); });
+  var base = BUILTIN.map(function (p) { return XMP.normalize(p); });
+  var trend = [
+    { id: 'bi_clear_air', name: '청량 에어리', from: 5,
+      basic: { temp: -10, tint: 1, exposure: 0.22, contrast: 6, highlights: -28, shadows: 24, whites: 14, blacks: -8, clarity: -2, dehaze: 4, vibrance: 15, saturation: -3 },
+      hsl: { hue: [0,-4,-12,18,-12,-8,0,0], sat: [-5,0,-18,-8,8,18,-5,-4], lum: [8,12,14,8,10,16,4,6] } },
+    { id: 'bi_pinterest', name: '핀터 에디토리얼', from: 4,
+      basic: { temp: 5, tint: 2, exposure: 0.12, contrast: -8, highlights: -30, shadows: 22, whites: -8, blacks: 10, clarity: -8, dehaze: -3, vibrance: -8, saturation: -12 },
+      hsl: { hue: [-4,-8,-18,20,8,4,0,-4], sat: [-12,-10,-26,-30,-22,-18,-12,-14], lum: [8,12,14,8,7,5,6,8] } },
+    { id: 'bi_quiet_luxury', name: '콰이어트 럭셔리', from: 6,
+      basic: { temp: 8, tint: 2, exposure: -0.02, contrast: 14, highlights: -32, shadows: 16, whites: -8, blacks: -15, clarity: 2, dehaze: 3, vibrance: -9, saturation: -10 },
+      hsl: { hue: [-4,-10,-20,28,10,4,0,-5], sat: [-10,-2,-28,-34,-24,-20,-16,-14], lum: [2,8,10,-5,-4,-8,0,2] } },
+    { id: 'bi_cool_analog', name: '쿨 아날로그', from: 1,
+      basic: { temp: -7, tint: 3, exposure: 0.08, contrast: 5, highlights: -35, shadows: 24, whites: -10, blacks: 6, clarity: -7, dehaze: -2, vibrance: 3, saturation: -8 },
+      hsl: { hue: [4,4,-14,22,-8,-8,0,-2], sat: [-5,2,-20,-25,-8,2,-8,-8], lum: [5,10,12,4,4,8,3,4] } },
+    { id: 'bi_cotton_skin', name: '코튼 스킨', from: 8,
+      basic: { temp: 3, tint: 3, exposure: 0.24, contrast: -10, highlights: -28, shadows: 20, whites: 8, blacks: 4, texture: -12, clarity: -16, dehaze: -2, vibrance: 6, saturation: -6 },
+      hsl: { hue: [-6,-8,-8,8,0,0,0,-4], sat: [-10,-8,-18,-20,-12,-10,-8,-8], lum: [14,18,10,4,4,4,5,10] } },
+    { id: 'bi_jeju_blue', name: '제주 블루', from: 5,
+      basic: { temp: -12, tint: -1, exposure: 0.16, contrast: 12, highlights: -24, shadows: 17, whites: 11, blacks: -10, clarity: 5, dehaze: 8, vibrance: 18, saturation: -2 },
+      hsl: { hue: [0,-4,-18,26,-20,-12,0,0], sat: [-5,-2,-30,-15,22,30,-5,-5], lum: [2,8,12,8,10,16,2,2] } },
+    { id: 'bi_seoul_night', name: '서울 나이트', from: 7,
+      basic: { temp: -8, tint: 12, exposure: -0.10, contrast: 24, highlights: -38, shadows: 28, whites: -5, blacks: -20, clarity: 10, dehaze: 8, vibrance: 22, saturation: 4 } },
+    { id: 'bi_cream_cafe', name: '크림 카페', from: 6,
+      basic: { temp: 11, tint: 4, exposure: 0.10, contrast: -2, highlights: -34, shadows: 20, whites: -8, blacks: 5, clarity: -6, dehaze: -2, vibrance: -2, saturation: -9 } },
+    { id: 'bi_flash_diary', name: '플래시 다이어리', from: 0,
+      basic: { temp: -2, tint: 4, exposure: 0.28, contrast: 22, highlights: -16, shadows: 8, whites: 22, blacks: -22, texture: 12, clarity: 8, dehaze: 4, vibrance: 12, saturation: 3 },
+      hsl: { hue: [0,-2,-8,12,-6,-4,0,0], sat: [8,8,-8,-8,8,10,5,5], lum: [10,14,4,-3,2,4,4,8] } },
+    { id: 'bi_digicam', name: '빈티지 디카', from: 3,
+      basic: { temp: -3, tint: 5, exposure: 0.10, contrast: 18, highlights: -12, shadows: 12, whites: 12, blacks: -8, texture: 8, clarity: 3, dehaze: 1, vibrance: 15, saturation: 2 },
+      hsl: { hue: [6,0,-12,18,-8,-6,2,2], sat: [8,10,-8,-12,8,12,10,8], lum: [5,8,8,2,4,5,2,4] } }
+  ];
+
+  global.BUILTIN_PRESETS = trend.map(function (spec) {
+    var p = JSON.parse(JSON.stringify(base[spec.from]));
+    p.id = spec.id;
+    p.name = spec.name;
+    p.source = 'builtin';
+    p.author = 'LUME';
+    if (spec.basic) Object.assign(p.basic, spec.basic);
+    if (spec.hsl) {
+      if (spec.hsl.hue) p.hsl.hue = spec.hsl.hue;
+      if (spec.hsl.sat) p.hsl.sat = spec.hsl.sat;
+      if (spec.hsl.lum) p.hsl.lum = spec.hsl.lum;
+    }
+    var normalized = XMP.normalize(p);
+    normalized.lume = LumeEffects.normalize(p.lume);
+    return normalized;
+  });
 })(window);
