@@ -42,6 +42,7 @@
     'uniform float uHasCurve;',
     'uniform float uHasLocal;',
     'uniform float uMono;',
+    'uniform vec3  uAWB;',     // 자동 화이트밸런스 채널 게인 (기본 1,1,1 = 보정 없음)
     'uniform vec4  uWB;',      // temp, tint, exposure(EV), contrast
     'uniform vec4  uTone;',    // highlights, shadows, whites, blacks
     'uniform vec3  uLocal;',   // texture, clarity, dehaze
@@ -91,7 +92,12 @@
     '}',
     '',
     'void main(){',
-    '  vec3 src = texture2D(uTex, vUV).rgb;',
+    '  vec3 raw = texture2D(uTex, vUV).rgb;',
+    '',
+    '  /* 0. 자동 화이트밸런스 — 선형 공간에서 채널 게인.',
+    '        프리셋보다 앞이며 프리셋 강도(uAmount)의 영향을 받지 않습니다.',
+    '        카메라 보정이지 프리셋의 일부가 아니기 때문입니다. */',
+    '  vec3 src = pow(max(pow(max(raw, 0.0), vec3(2.2)) * uAWB, 0.0), vec3(1.0 / 2.2));',
     '  vec3 c = src;',
     '',
     '  /* 1. 선형화 → 화이트밸런스 → 노출 */',
@@ -350,6 +356,10 @@
 
   /* ══════════════ 렌더러 ══════════════ */
 
+  /* 자동 화이트밸런스 채널 게인 — 모든 렌더러(미리보기·촬영)가 함께 씁니다.
+     1,1,1 이면 보정하지 않은 것과 같습니다. */
+  var awbGain = [1, 1, 1];
+
   function GLRenderer(canvas) {
     this.canvas = canvas;
     this.ok = false;
@@ -382,7 +392,7 @@
 
     /* 유니폼 위치 캐시 */
     var names = ['uTex', 'uCurve', 'uTexel', 'uAmount', 'uTime', 'uHasCurve', 'uHasLocal',
-      'uMono', 'uWB', 'uTone', 'uLocal', 'uSatV', 'uGSh', 'uGMid', 'uGHi', 'uGGl',
+      'uMono', 'uAWB', 'uWB', 'uTone', 'uLocal', 'uSatV', 'uGSh', 'uGMid', 'uGHi', 'uGGl',
       'uGLum', 'uGMix', 'uVig', 'uGrainP', 'uFadeSh', 'uScale', 'uOffset', 'uFlipX',
       'uMistMode', 'uMistStrength', 'uCrossRays', 'uColorFilter', 'uColorAmount',
       'uNdMultiplier'];
@@ -454,6 +464,7 @@
     gl.useProgram(this.prog);
     var b = p.basic, g = p.grade, f = p.fx;
 
+    gl.uniform3f(u.uAWB, awbGain[0], awbGain[1], awbGain[2]);
     gl.uniform4f(u.uWB, b.temp / 100, b.tint / 100, b.exposure, b.contrast / 100);
     gl.uniform4f(u.uTone, b.highlights / 100, b.shadows / 100, b.whites / 100, b.blacks / 100);
     gl.uniform3f(u.uLocal, b.texture / 100, b.clarity / 100, b.dehaze / 100);
@@ -508,6 +519,13 @@
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, buildCurveLUT(p));
     }
     gl.uniform1f(u.uAmount, this.amount);
+  };
+
+  /* 프리셋을 다시 세팅하지 않고 게인만 밀어넣습니다 (매 프레임 호출해도 쌉니다) */
+  GLRenderer.prototype.applyAWB = function () {
+    if (!this.ok) return;
+    this.gl.useProgram(this.prog);
+    this.gl.uniform3f(this.u.uAWB, awbGain[0], awbGain[1], awbGain[2]);
   };
 
   GLRenderer.prototype.setAmount = function (a) {
@@ -593,9 +611,17 @@
     return r.canvas;
   }
 
+  /* 자동 화이트밸런스 게인 설정 — 촬영용 오프스크린에도 같이 적용됩니다 */
+  function setAWB(r, g, b) {
+    awbGain[0] = r; awbGain[1] = g; awbGain[2] = b;
+    if (offscreen && offscreen.ok) offscreen.applyAWB();
+  }
+  function getAWB() { return awbGain.slice(); }
+
   global.GL = {
     Renderer: GLRenderer,
     renderTo: renderTo,
+    setAWB: setAWB, getAWB: getAWB,
     buildCurveLUT: buildCurveLUT,
     monotoneSpline: monotoneSpline,
     parametricDelta: parametricDelta,

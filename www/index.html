@@ -37,6 +37,10 @@
       <div id="grid" class="grid-off"></div>
       <div id="focusRing"></div>
       <div id="shutterFlash"></div>
+      <div id="scope" class="hidden">
+        <canvas id="histCanvas" width="256" height="72"></canvas>
+        <div id="scopeWarn"></div>
+      </div>
       <div id="camError" class="cam-error hidden">
         <div class="cam-error-icon">◎</div>
         <p id="camErrorText">카메라를 사용할 수 없습니다</p>
@@ -54,6 +58,8 @@
       <button class="pill" id="btnRatio">3:4</button>
       <button class="pill" id="btnGrid">격자</button>
       <button class="pill" id="btnTorch">플래시</button>
+      <button class="pill" id="btnHist">파형</button>
+      <button class="pill" id="btnPro">프로</button>
     </div>
     <button class="ic" id="btnSettings" aria-label="설정">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3L5.5 5.5"/></svg>
@@ -81,6 +87,9 @@
 
     <div id="activeEffects" class="active-effects"></div>
 
+    <!-- 프로 조작 (ISO · 셔터 · 노출보정 · 색온도) -->
+    <div id="proPanel" class="hidden"></div>
+
     <div id="presetStrip">
       <div id="effectRail">
       <div id="presetRail"></div>
@@ -88,8 +97,20 @@
     </div>
 
     <div id="modeRow">
+      <!-- 프리셋 줄 열고 닫기 — 사진을 가리지 않게 기본은 닫힘 -->
+      <button id="btnPresets" class="side-btn left" aria-label="프리셋 열기">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+        <span>프리셋</span>
+      </button>
+
       <button class="mode active" data-mode="photo">사진</button>
       <button class="mode" data-mode="video">영상</button>
+
+      <!-- 프리셋 편집 진입 -->
+      <button id="btnEdit" class="side-btn right" aria-label="프리셋 편집">
+        <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14.5 5.5 18.5 9.5"/></svg>
+        <span>편집</span>
+      </button>
     </div>
 
     <div id="actionRow">
@@ -101,11 +122,6 @@
     </div>
   </footer>
 
-  <!-- 프리셋 편집 진입 -->
-  <button id="btnEdit" class="edit-fab" aria-label="프리셋 편집">
-    <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14.5 5.5 18.5 9.5"/></svg>
-    <span>편집</span>
-  </button>
 </main>
 
 <!-- ═══════════════ 프리셋 편집 ═══════════════ -->
@@ -216,6 +232,7 @@
 
 <div id="toast"></div>
 
+<script src="js/analyze.js"></script>
 <script src="js/store.js"></script>
 <script src="js/xmp.js"></script>
 <script src="js/lume-effects.js"></script>
