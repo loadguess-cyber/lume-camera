@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.iroir.lume.camera.CameraCapabilityRepository
+import com.iroir.lume.ui.camera.CameraScreen
 import com.iroir.lume.ui.diagnostics.CameraDiagnosticsScreen
 
 @Composable
@@ -30,6 +32,7 @@ fun LumeApp() {
     val context = LocalContext.current
     val cameraGranted = context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     var refreshKey by remember { mutableIntStateOf(0) }
+    var showDiagnostics by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         refreshKey++
     }
@@ -37,7 +40,11 @@ fun LumeApp() {
     if (cameraGranted) {
         val repository = remember(refreshKey) { CameraCapabilityRepository(context.applicationContext) }
         val capabilities by repository.observe().collectAsStateWithLifecycle(initialValue = emptyList())
-        CameraDiagnosticsScreen(capabilities = capabilities, onRefresh = { refreshKey++ })
+        if (showDiagnostics) {
+            CameraDiagnosticsScreen(capabilities = capabilities, onRefresh = { refreshKey++ })
+        } else {
+            CameraScreen(capabilities = capabilities, onDiagnostics = { showDiagnostics = true })
+        }
         return
     }
 
