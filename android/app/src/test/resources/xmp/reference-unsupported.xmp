@@ -1,0 +1,9 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:CameraProfile="Adobe Color"
+      crs:LookTableName="Modern 04"
+      crs:MaskGroupBasedCorrections="True"
+      crs:Exposure2012="0.20" />
+  </rdf:RDF>
+</x:xmpmeta>

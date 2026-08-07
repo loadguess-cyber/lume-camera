@@ -1,0 +1,24 @@
+<?xpacket begin="﻿"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:ProcessVersion="15.4"
+      crs:Exposure2012="+0.75"
+      crs:Contrast2012="12"
+      crs:Highlights2012="-24"
+      crs:Shadows2012="18"
+      crs:Whites2012="7"
+      crs:Blacks2012="-9"
+      crs:IncrementalTemperature="6"
+      crs:IncrementalTint="-3"
+      crs:Vibrance="20"
+      crs:Saturation="-4"
+      crs:HueAdjustmentBlue="-8"
+      crs:SaturationAdjustmentBlue="14">
+      <crs:ToneCurvePV2012><rdf:Seq>
+        <rdf:li>0, 0</rdf:li><rdf:li>64, 58</rdf:li><rdf:li>128, 132</rdf:li><rdf:li>255, 255</rdf:li>
+      </rdf:Seq></crs:ToneCurvePV2012>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
